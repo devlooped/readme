@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.0.0-rc](https://github.com/devlooped/readme/tree/v1.0.0-rc) (2026-07-09)
+
+[Full Changelog](https://github.com/devlooped/readme/compare/v1.0.0-beta...v1.0.0-rc)
+
+:sparkles: Implemented enhancements:
+
+- docs: auto-anchor includes heading; explicit markers control title [\#10](https://github.com/devlooped/readme/pull/10) (@kzu)
+
 ## [v1.0.0-beta](https://github.com/devlooped/readme/tree/v1.0.0-beta) (2026-07-09)
 
 [Full Changelog](https://github.com/devlooped/readme/compare/v1.0.0-alpha...v1.0.0-beta)
