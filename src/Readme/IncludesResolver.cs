@@ -3,14 +3,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Readme;
 
 /// <summary>
 /// Resolves <c>&lt;!-- include path --&gt;</c> directives in markdown (and similar) files.
 /// Supports nested includes, <c>#fragment</c> sections, and HTTP(S) URLs.
+/// Detects circular includes via an ancestry chain of canonical resource keys.
 /// Ported from NuGetizer for dual use with SDK Pack and NuGetizer.
 /// </summary>
 public class IncludesResolver
@@ -18,7 +17,32 @@ public class IncludesResolver
     static readonly Regex IncludeRegex = new(@"<!--\s?include\s(.*?)\s?-->", RegexOptions.Compiled);
     static readonly HttpClient http = new();
 
+    /// <summary>
+    /// Processes include directives in <paramref name="filePath"/> (local path or http(s) URL).
+    /// </summary>
+    /// <param name="filePath">Root file or absolute HTTP(S) URL to process.</param>
+    /// <param name="logWarning">Optional warning sink (missing includes, fragments, cycles).</param>
     public static string Process(string filePath, Action<string>? logWarning = default)
+        => Process(filePath, logWarning, ancestry: null);
+
+    static string Process(string filePath, Action<string>? logWarning, HashSet<string>? ancestry)
+    {
+        ancestry ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var resourceKey = ToResourceKey(filePath);
+
+        // Root (or nested) resource is on the ancestry chain while its includes are expanded.
+        ancestry.Add(resourceKey);
+        try
+        {
+            return ProcessCore(filePath, logWarning, ancestry);
+        }
+        finally
+        {
+            ancestry.Remove(resourceKey);
+        }
+    }
+
+    static string ProcessCore(string filePath, Action<string>? logWarning, HashSet<string> ancestry)
     {
         string? content = null;
 
@@ -64,12 +88,23 @@ public class IncludesResolver
             }
 
             var isUri = Uri.IsWellFormedUriString(includedPath, UriKind.Absolute);
-            var includedFullPath = Path.Combine(Path.GetDirectoryName(filePath) ?? "", includedPath)
-                .Replace(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var includedFullPath = isUri
+                ? includedPath
+                : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(filePath) ?? "", includedPath));
+
             if (isUri || File.Exists(includedFullPath))
             {
-                // Resolve nested includes
-                var includedContent = Process(isUri ? includedPath : includedFullPath, logWarning);
+                var includedKey = ToResourceKey(isUri ? includedPath : includedFullPath);
+                if (ancestry.Contains(includedKey))
+                {
+                    // Circular include: warn and leave the <!-- include ... --> marker unresolved.
+                    logWarning?.Invoke(
+                        $"Circular include detected: {includedPath}{fragment} resolves to {includedKey}, which is already being processed.");
+                    continue;
+                }
+
+                // Resolve nested includes (ancestry tracks the chain; diamond re-includes are allowed).
+                var includedContent = Process(isUri ? includedPath : includedFullPath, logWarning, ancestry);
                 if (fragment != null)
                 {
                     var anchor = $"<!-- {fragment} -->";
@@ -110,5 +145,20 @@ public class IncludesResolver
         }
 
         return content!;
+    }
+
+    /// <summary>
+    /// Canonical identity for cycle detection: full local path or absolute http(s) URL.
+    /// </summary>
+    static string ToResourceKey(string filePath)
+    {
+        if (Uri.TryCreate(filePath, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == "http" || uri.Scheme == "https"))
+        {
+            // Normalize URI form (scheme/host casing) while keeping path semantics of the URL.
+            return uri.AbsoluteUri;
+        }
+
+        return Path.GetFullPath(filePath);
     }
 }
