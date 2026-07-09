@@ -35,7 +35,7 @@ When the project is packable and a `readme.md` (or `$(PackageReadmeFile)`) is pr
 
 ### Include syntax
 
-Use an HTML comment starting with `include` and a path (relative file, `#fragment`, or `http(s)` URL). Nested includes are supported. Fragments use matching HTML comments as anchors (for example `#section`) in the included file.
+Use an HTML comment starting with `include` and a path (relative file, `#fragment`, or `http(s)` URL). Nested includes are supported. Fragments resolve to matching HTML comment anchors (for example `<!-- #section -->`) when present; otherwise they fall back to the Markdown heading whose [GitHub auto-anchor](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#section-links) matches the fragment (for example `## Usage` for `#usage`).
 
 Unresolved includes log a warning and leave the marker in place (pack does not fail).
 
