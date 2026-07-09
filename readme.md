@@ -1,4 +1,4 @@
-![Icon](https://raw.githubusercontent.com/devlooped/readme/main/assets/icon.png) Readme
+![Icon](https://raw.githubusercontent.com/devlooped/readme/main/assets/img/icon.png) Readme
 ============
 
 [![Version](https://img.shields.io/nuget/vpre/Readme.svg?color=royalblue)](https://www.nuget.org/packages/Readme)
@@ -18,9 +18,8 @@ To pay the Maintenance Fee, [become a Sponsor](https://github.com/sponsors/devlo
 OSMF tier. A single fee covers all of [Devlooped packages](https://www.nuget.org/profiles/Devlooped).
 
 <!-- https://github.com/devlooped/.github/raw/main/osmf.md -->
-<!-- #content -->
 ## Usage
-
+<!-- #content -->
 Adds automatic package readme packing and include-directive resolution at pack time.
 Works with **SDK Pack** and **NuGetizer** (no NuGetizer required).
 
