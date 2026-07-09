@@ -33,3 +33,5 @@ Compatible with both SDK Pack and NuGetizer. Does not require NuGetizer.
 ## Non-goals (not ported from NuGetizer)
 
 - `$token$` replacement, GitHub relative-link rewriting, license-file include processing, analyzer diagnostics for missing readme.
+
+<!-- exclude -->
