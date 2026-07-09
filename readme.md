@@ -1,4 +1,5 @@
-# readme
+![Icon](https://raw.githubusercontent.com/devlooped/readme/main/assets/icon.png) Readme
+============
 
 [![Version](https://img.shields.io/nuget/vpre/Readme.svg?color=royalblue)](https://www.nuget.org/packages/Readme)
 [![Downloads](https://img.shields.io/nuget/dt/Readme.svg?color=darkmagenta)](https://www.nuget.org/packages/Readme)
