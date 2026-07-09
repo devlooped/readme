@@ -1,23 +1,10 @@
-![Icon](https://raw.githubusercontent.com/devlooped/readme/main/assets/img/icon.png) Readme
-============
+# NuGet Readme
 
 [![Version](https://img.shields.io/nuget/vpre/Readme.svg?color=royalblue)](https://www.nuget.org/packages/Readme)
 [![Downloads](https://img.shields.io/nuget/dt/Readme.svg?color=darkmagenta)](https://www.nuget.org/packages/Readme)
 [![EULA](https://img.shields.io/badge/EULA-OSMF-blue?labelColor=black&color=C9FF30)](https://github.com/devlooped/oss/blob/main/osmfeula.txt)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/devlooped/oss/blob/main/license.txt)
 
-<!-- include https://github.com/devlooped/.github/raw/main/osmf.md -->
-## Open Source Maintenance Fee
-
-To ensure the long-term sustainability of this project, users of this package who generate 
-revenue must pay an [Open Source Maintenance Fee](https://opensourcemaintenancefee.org). 
-While the source code is freely available under the terms of the [License](license.txt), 
-this package and other aspects of the project require [adherence to the Maintenance Fee](osmfeula.txt).
-
-To pay the Maintenance Fee, [become a Sponsor](https://github.com/sponsors/devlooped) at the proper 
-OSMF tier. A single fee covers all of [Devlooped packages](https://www.nuget.org/profiles/Devlooped).
-
-<!-- https://github.com/devlooped/.github/raw/main/osmf.md -->
 ## Usage
 <!-- #content -->
 Adds automatic package readme packing and include-directive resolution at pack time.
@@ -62,6 +49,19 @@ Absolute `http(s)` includes from a **local** file are always allowed (subject to
 </ItemGroup>
 ```
 <!-- #content -->
+---
+<!-- include https://github.com/devlooped/.github/raw/main/osmf.md -->
+## Open Source Maintenance Fee
+
+To ensure the long-term sustainability of this project, users of this package who generate 
+revenue must pay an [Open Source Maintenance Fee](https://opensourcemaintenancefee.org). 
+While the source code is freely available under the terms of the [License](license.txt), 
+this package and other aspects of the project require [adherence to the Maintenance Fee](osmfeula.txt).
+
+To pay the Maintenance Fee, [become a Sponsor](https://github.com/sponsors/devlooped) at the proper 
+OSMF tier. A single fee covers all of [Devlooped packages](https://www.nuget.org/profiles/Devlooped).
+
+<!-- https://github.com/devlooped/.github/raw/main/osmf.md -->
 ---
 <!-- include https://github.com/devlooped/sponsors/raw/main/footer.md -->
 # Sponsors 
