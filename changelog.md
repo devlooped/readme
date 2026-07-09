@@ -1,5 +1,9 @@
 # Changelog
 
+## [v1.0.0-beta](https://github.com/devlooped/readme/tree/v1.0.0-beta) (2026-07-09)
+
+[Full Changelog](https://github.com/devlooped/readme/compare/v1.0.0-alpha...v1.0.0-beta)
+
 ## [v1.0.0-alpha](https://github.com/devlooped/readme/tree/v1.0.0-alpha) (2026-07-09)
 
 [Full Changelog](https://github.com/devlooped/readme/compare/v0.1.0...v1.0.0-alpha)
