@@ -22,7 +22,14 @@ When the project is packable and a `readme.md` (or `$(PackageReadmeFile)`) is pr
 
 ### Include syntax
 
-Use an HTML comment starting with `include` and a path (relative file, `#fragment`, or `http(s)` URL). Nested includes are supported. Fragments resolve to matching HTML comment anchors (for example `<!-- #section -->`) when present; otherwise they fall back to the Markdown heading whose [GitHub auto-anchor](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#section-links) matches the fragment (for example `## Usage` for `#usage`).
+Use an HTML comment starting with `include` and a path (relative file, `#fragment`, or `http(s)` URL). Nested includes are supported.
+
+Fragments resolve in this order:
+
+1. **Explicit comment anchors** — matching `<!-- #section -->` … `<!-- #section -->` pairs (when present). The markers and everything between them is included, so you control whether a section title is in the range (for example put `## Usage` inside the pair to keep the title, or place the pair after the heading to omit it).
+2. **GitHub heading auto-anchors** — otherwise the Markdown ATX heading whose [GitHub auto-anchor](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#section-links) matches the fragment (for example `## Usage` for `#usage`). The heading line itself is included, through the line before the next heading of the same or higher level.
+
+Use explicit `<!-- #fragment -->` markup when you need maximum control over whether the section name is included; auto-anchors always include the matching heading.
 
 Unresolved includes log a warning and leave the marker in place (pack does not fail).
 
