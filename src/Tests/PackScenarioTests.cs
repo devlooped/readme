@@ -81,7 +81,11 @@ public class PackScenarioTests
         InjectLocalFeedAndReference(work, packed, useNuGetizer: true);
 
         var packLog = Path.Combine(evidenceDir, "pack.log");
-        var exit = RunDotnet($"pack \"{Path.Combine(work, "NuGetizerPack.csproj")}\" -c Release -o \"{Path.Combine(work, "out")}\" -v:n", work, packLog);
+        // Build first so NuGetizer has primary output to package (Pack alone can skip Build in some hosts).
+        var buildLog = Path.Combine(evidenceDir, "build.log");
+        var exit = RunDotnet($"build \"{Path.Combine(work, "NuGetizerPack.csproj")}\" -c Release -v:n", work, buildLog);
+        Assert.True(exit == 0, $"NuGetizer build failed. See {buildLog}\n{File.ReadAllText(buildLog)}");
+        exit = RunDotnet($"pack \"{Path.Combine(work, "NuGetizerPack.csproj")}\" -c Release -o \"{Path.Combine(work, "out")}\" -v:n", work, packLog);
         Assert.True(exit == 0, $"NuGetizer pack failed. See {packLog}\n{File.ReadAllText(packLog)}");
 
         var intermediateReadme = Directory.GetFiles(Path.Combine(work, "obj"), "readme.md", SearchOption.AllDirectories)
