@@ -240,14 +240,45 @@ public class IncludesResolverTests
         var warnings = new List<string>();
         var content = IncludesResolver.Process(root, w => warnings.Add(w));
 
+        // Auto-anchor slice always includes the matching heading line itself.
         Assert.Contains("## Usage", content);
-        Assert.Contains("usage-body", content);
+        Assert.StartsWith("<!-- include sections.md#usage -->", content.TrimStart());
+        Assert.Contains("## Usage\nusage-body", content.Replace("\r\n", "\n"));
         Assert.Contains("details-here", content);
         Assert.DoesNotContain("intro-body", content);
         Assert.DoesNotContain("other-body", content);
         Assert.DoesNotContain("## Other", content);
         Assert.DoesNotContain("## Intro", content);
         Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void CommentAnchor_CanOmitOrIncludeSectionTitleByPlacement()
+    {
+        // Explicit <!-- #fragment --> markup gives control over whether the section name is included.
+        using var dir = new TempDir();
+        var omit = dir.Write("omit.md", "<!-- include doc.md#usage -->\n");
+        dir.Write("doc.md",
+            "## Usage\n" +
+            "<!-- #usage -->\n" +
+            "body-only\n" +
+            "<!-- #usage -->\n");
+
+        var omitContent = IncludesResolver.Process(omit);
+        Assert.Contains("body-only", omitContent);
+        Assert.DoesNotContain("## Usage", omitContent);
+
+        using var dir2 = new TempDir();
+        var keep = dir2.Write("keep.md", "<!-- include doc.md#usage -->\n");
+        dir2.Write("doc.md",
+            "<!-- #usage -->\n" +
+            "## Usage\n" +
+            "with-title\n" +
+            "<!-- #usage -->\n");
+
+        var keepContent = IncludesResolver.Process(keep);
+        Assert.Contains("## Usage", keepContent);
+        Assert.Contains("with-title", keepContent);
     }
 
     [Fact]
@@ -402,6 +433,18 @@ public class IncludesResolverTests
         var ok = IncludesResolver.TryExtractHeadingSection("## Usage\nbody\n", "missing", out var section);
         Assert.False(ok);
         Assert.Equal("", section);
+    }
+
+    [Fact]
+    public void TryExtractHeadingSection_IncludesHeadingLineInSlice()
+    {
+        var ok = IncludesResolver.TryExtractHeadingSection(
+            "## Intro\nintro\n## Usage\nusage-body\n## Other\nother\n",
+            "usage",
+            out var section);
+
+        Assert.True(ok);
+        Assert.Equal("## Usage\nusage-body", section.Replace("\r\n", "\n"));
     }
 
     // --- Remote URL policy (scheme allowlist, base-relative, domain allowlist) ---

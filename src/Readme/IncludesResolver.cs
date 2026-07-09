@@ -205,7 +205,8 @@ public class IncludesResolver
                 var start = includedContent.IndexOf(anchor, StringComparison.Ordinal);
                 if (start != -1)
                 {
-                    // Explicit comment anchors win over heading auto-anchors.
+                    // Explicit comment anchors win over heading auto-anchors and include the
+                    // marker lines themselves — placement controls whether a section title is in range.
                     includedContent = includedContent.Substring(start);
                     var end = includedContent.IndexOf(anchor, anchor.Length, StringComparison.Ordinal);
                     if (end != -1)
@@ -213,6 +214,7 @@ public class IncludesResolver
                 }
                 else if (TryExtractHeadingSection(includedContent, fragment.Substring(1), out var headingSection))
                 {
+                    // Auto-anchor slice always includes the matching heading line (e.g. "## Usage").
                     includedContent = headingSection;
                 }
                 else
@@ -456,8 +458,10 @@ public class IncludesResolver
 
     /// <summary>
     /// Extracts the ATX heading section whose GitHub auto-anchor matches <paramref name="fragmentName"/>
-    /// (without leading <c>#</c>). Section runs from the matching heading through the line before the next
-    /// heading of the same or higher level (or EOF). Returns false when no heading matches.
+    /// (without leading <c>#</c>). The matching heading line itself is included (for example
+    /// <c>## Usage</c> for <c>usage</c>), through the line before the next heading of the same or
+    /// higher level (or EOF). Prefer explicit <c>&lt;!-- #fragment --&gt;</c> markers when callers need
+    /// to control whether the section title is part of the slice. Returns false when no heading matches.
     /// </summary>
     public static bool TryExtractHeadingSection(string content, string fragmentName, out string section)
     {
