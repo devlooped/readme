@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/Readme/Readme.csproj" />
+  <Project Path="src/Tests/Tests.csproj" />
+</Solution>

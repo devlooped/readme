@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <Product>readme</Product>
+    <ImplicitUsings>true</ImplicitUsings>
+  </PropertyGroup>
+</Project>
