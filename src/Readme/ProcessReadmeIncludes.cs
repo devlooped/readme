@@ -1,4 +1,6 @@
-﻿using System.IO;
+using System;
+using System.IO;
+using System.Linq;
 using Microsoft.Build.Framework;
 using Task = Microsoft.Build.Utilities.Task;
 
@@ -18,6 +20,18 @@ public class ProcessReadmeIncludes : Task
     [Required]
     public string OutputFile { get; set; } = "";
 
+    /// <summary>
+    /// Semicolon-separated URI schemes allowed for remote includes (default <c>https</c>).
+    /// Maps from <c>$(ReadmeIncludeScheme)</c>.
+    /// </summary>
+    public string AllowedSchemes { get; set; } = "https";
+
+    /// <summary>
+    /// Hosts allowed for absolute remote includes from remote content.
+    /// Maps from <c>@(ReadmeIncludeDomain)</c>. Local-file → remote hops ignore this list.
+    /// </summary>
+    public ITaskItem[]? AllowedDomains { get; set; }
+
     public override bool Execute()
     {
         if (string.IsNullOrWhiteSpace(SourceFile) || !File.Exists(SourceFile))
@@ -32,7 +46,18 @@ public class ProcessReadmeIncludes : Task
             return false;
         }
 
-        var content = IncludesResolver.Process(SourceFile, message => Log.LogWarning(message));
+        var options = new IncludeResolutionOptions
+        {
+            AllowedSchemes = string.IsNullOrWhiteSpace(AllowedSchemes)
+                ? new[] { "https" }
+                : new[] { AllowedSchemes },
+            AllowedDomains = AllowedDomains?
+                .Select(i => i.ItemSpec)
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .ToArray(),
+        };
+
+        var content = IncludesResolver.Process(SourceFile, message => Log.LogWarning(message), options);
 
         var directory = Path.GetDirectoryName(OutputFile);
         if (!string.IsNullOrEmpty(directory))

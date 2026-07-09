@@ -39,12 +39,28 @@ Use an HTML comment starting with `include` and a path (relative file, `#fragmen
 
 Unresolved includes log a warning and leave the marker in place (pack does not fail).
 
+### Remote includes
+
+Absolute `http(s)` includes from a **local** file are always allowed (subject to scheme). Includes nested inside remote content resolve relative paths against that URL’s base. Absolute URLs from remote content are allowed only when the host is the same as (or a subdomain of) the including remote host, or is listed in `@(ReadmeIncludeDomain)` (subdomains of listed domains count too). Other schemes/hosts warn and stay unresolved.
+
 ### Properties
 
-| Property | Default | Description |
-|----------|---------|-------------|
+| Property / item | Default | Description |
+|-----------------|---------|-------------|
 | `PackReadme` | `true` | Auto-pack the package readme when present |
 | `PackageReadmeFile` | `readme.md` if it exists | Package readme path / in-package filename |
+| `ReadmeIncludeScheme` | `https` | Semicolon-separated URI schemes allowed for remote includes (add `http` only if needed) |
+| `@(ReadmeIncludeDomain)` | _(empty)_ | Hosts allowed for absolute remote includes nested inside remote content |
+
+```xml
+<PropertyGroup>
+  <!-- Optional: allow cleartext remote includes -->
+  <ReadmeIncludeScheme>https;http</ReadmeIncludeScheme>
+</PropertyGroup>
+<ItemGroup>
+  <ReadmeIncludeDomain Include="cdn.example.com" />
+</ItemGroup>
+```
 <!-- #content -->
 ---
 <!-- include https://github.com/devlooped/sponsors/raw/main/footer.md -->

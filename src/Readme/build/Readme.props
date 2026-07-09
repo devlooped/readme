@@ -9,5 +9,18 @@
   <PropertyGroup>
     <!-- Whether to automatically pack the package readme (default readme.md / PackageReadmeFile). -->
     <PackReadme Condition="'$(PackReadme)' == ''">true</PackReadme>
+
+    <!--
+      URI schemes allowed for remote include targets (semicolon-separated).
+      Default https only. Add http only when you intentionally allow cleartext remote includes.
+    -->
+    <ReadmeIncludeScheme Condition="'$(ReadmeIncludeScheme)' == ''">https</ReadmeIncludeScheme>
   </PropertyGroup>
+
+  <!--
+    @(ReadmeIncludeDomain): hosts safe for absolute remote includes nested inside remote content.
+    Local file to absolute remote is always allowed (subject to ReadmeIncludeScheme).
+    Empty by default: remote content may only nest relative includes (same host / parent-base URI)
+    or absolute URLs whose host is the including remote host or a subdomain of it / a listed domain.
+  -->
 </Project>
