@@ -33,10 +33,10 @@ public class PackScenarioTests
         Directory.CreateDirectory(evidenceDir);
 
         var work = PrepareScenario("SdkPack", evidenceDir);
-        var readmePackageDir = EnsureReadmePackage(evidenceDir);
+        var packed = EnsureReadmePackage(evidenceDir);
 
         // Point scenario at locally packed Readme package via nuget.config + PackageReference
-        InjectLocalFeedAndReference(work, readmePackageDir, useNuGetizer: false);
+        InjectLocalFeedAndReference(work, packed, useNuGetizer: false);
 
         var packLog = Path.Combine(evidenceDir, "pack.log");
         var exit = RunDotnet($"pack \"{Path.Combine(work, "SdkPack.csproj")}\" -c Release -o \"{Path.Combine(work, "out")}\" -v:n", work, packLog);
@@ -77,8 +77,8 @@ public class PackScenarioTests
         Directory.CreateDirectory(evidenceDir);
 
         var work = PrepareScenario("NuGetizerPack", evidenceDir);
-        var readmePackageDir = EnsureReadmePackage(evidenceDir);
-        InjectLocalFeedAndReference(work, readmePackageDir, useNuGetizer: true);
+        var packed = EnsureReadmePackage(evidenceDir);
+        InjectLocalFeedAndReference(work, packed, useNuGetizer: true);
 
         var packLog = Path.Combine(evidenceDir, "pack.log");
         var exit = RunDotnet($"pack \"{Path.Combine(work, "NuGetizerPack.csproj")}\" -c Release -o \"{Path.Combine(work, "out")}\" -v:n", work, packLog);
@@ -113,8 +113,8 @@ public class PackScenarioTests
         Directory.CreateDirectory(evidenceDir);
 
         var work = PrepareScenario("PackReadmeFalse", evidenceDir);
-        var readmePackageDir = EnsureReadmePackage(evidenceDir);
-        InjectLocalFeedAndReference(work, readmePackageDir, useNuGetizer: false);
+        var packed = EnsureReadmePackage(evidenceDir);
+        InjectLocalFeedAndReference(work, packed, useNuGetizer: false);
 
         // Ensure PackReadme=false survives injection (csproj already has it; assert disk still has readme.md)
         Assert.True(File.Exists(Path.Combine(work, "readme.md")), "Scenario must have a project readme on disk");
@@ -156,7 +156,9 @@ public class PackScenarioTests
         return work;
     }
 
-    string EnsureReadmePackage(string evidenceDir)
+    sealed record PackedReadme(string FeedDir, string Version);
+
+    PackedReadme EnsureReadmePackage(string evidenceDir)
     {
         var feed = Path.Combine(ScratchRoot, "local-feed");
         Directory.CreateDirectory(feed);
@@ -176,11 +178,20 @@ public class PackScenarioTests
         Assert.True(exit == 0, $"Second pack of Readme package failed.\n{File.ReadAllText(packLog2)}");
         File.AppendAllText(globalPackLog, "\n--- second pack ---\n" + File.ReadAllText(packLog2));
 
-        Assert.NotEmpty(Directory.GetFiles(feed, "Readme*.nupkg"));
-        return feed;
+        // CI may stamp prerelease labels (e.g. 42.42.0-pr4.5); use whatever was packed.
+        var nupkg = Directory.GetFiles(feed, "Readme*.nupkg")
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+        Assert.True(nupkg != null, $"No Readme*.nupkg in {feed}");
+        var fileName = Path.GetFileNameWithoutExtension(nupkg!);
+        Assert.True(fileName.StartsWith("Readme.", StringComparison.OrdinalIgnoreCase),
+            $"Unexpected package file name: {fileName}");
+        var version = fileName.Substring("Readme.".Length);
+        File.WriteAllText(Path.Combine(evidenceDir, "readme-package-version.txt"), version);
+        return new PackedReadme(feed, version);
     }
 
-    static void InjectLocalFeedAndReference(string projectDir, string feedDir, bool useNuGetizer)
+    static void InjectLocalFeedAndReference(string projectDir, PackedReadme packed, bool useNuGetizer)
     {
         // Clear packageSourceMapping so the local feed is considered (user-level mapping
         // would otherwise ignore unmapped sources).
@@ -189,7 +200,7 @@ public class PackScenarioTests
             <configuration>
               <packageSources>
                 <clear />
-                <add key="local" value="{feedDir}" />
+                <add key="local" value="{packed.FeedDir}" />
                 <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
               </packageSources>
               <packageSourceMapping>
@@ -215,9 +226,9 @@ public class PackScenarioTests
 
         if (!csproj.Contains("PackageReference Include=\"Readme\""))
         {
-            var packageRef = """
+            var packageRef = $"""
                   <ItemGroup>
-                    <PackageReference Include="Readme" Version="42.42.42" PrivateAssets="all" />
+                    <PackageReference Include="Readme" Version="{packed.Version}" PrivateAssets="all" />
                   </ItemGroup>
                 </Project>
                 """;
