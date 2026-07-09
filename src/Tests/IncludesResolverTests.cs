@@ -220,6 +220,189 @@ public class IncludesResolverTests
             w.Contains("a.md", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void HeadingFragment_FallsBackToGitHubAutoAnchor_WhenNoCommentAnchor()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include sections.md#usage -->\n");
+        dir.Write("sections.md",
+            "## Intro\n" +
+            "intro-body\n" +
+            "\n" +
+            "## Usage\n" +
+            "usage-body\n" +
+            "details-here\n" +
+            "\n" +
+            "## Other\n" +
+            "other-body\n");
+
+        var warnings = new List<string>();
+        var content = IncludesResolver.Process(root, w => warnings.Add(w));
+
+        Assert.Contains("## Usage", content);
+        Assert.Contains("usage-body", content);
+        Assert.Contains("details-here", content);
+        Assert.DoesNotContain("intro-body", content);
+        Assert.DoesNotContain("other-body", content);
+        Assert.DoesNotContain("## Other", content);
+        Assert.DoesNotContain("## Intro", content);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void HeadingFragment_IncludesNestedLowerLevelHeadings()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include doc.md#usage -->\n");
+        dir.Write("doc.md",
+            "## Usage\n" +
+            "usage-top\n" +
+            "### Details\n" +
+            "nested-details\n" +
+            "## Next\n" +
+            "next-body\n");
+
+        var content = IncludesResolver.Process(root);
+
+        Assert.Contains("## Usage", content);
+        Assert.Contains("usage-top", content);
+        Assert.Contains("### Details", content);
+        Assert.Contains("nested-details", content);
+        Assert.DoesNotContain("next-body", content);
+        Assert.DoesNotContain("## Next", content);
+    }
+
+    [Fact]
+    public void CommentAnchor_TakesPriorityOverHeadingWithSameFragmentName()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include doc.md#usage -->\n");
+        dir.Write("doc.md",
+            "## Usage\n" +
+            "heading-usage-body\n" +
+            "\n" +
+            "<!-- #usage -->\n" +
+            "comment-usage-body\n" +
+            "<!-- #usage -->\n" +
+            "\n" +
+            "## Other\n" +
+            "other\n");
+
+        var content = IncludesResolver.Process(root);
+
+        Assert.Contains("comment-usage-body", content);
+        Assert.Contains("<!-- #usage -->", content);
+        Assert.DoesNotContain("heading-usage-body", content);
+        Assert.DoesNotContain("## Usage", content);
+    }
+
+    [Fact]
+    public void MissingFragment_NoCommentOrHeading_WarnsAndLeavesMarker()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "before\n<!-- include doc.md#missing -->\nafter\n");
+        dir.Write("doc.md", "## Usage\nusage-body\n");
+
+        var warnings = new List<string>();
+        var content = IncludesResolver.Process(root, w => warnings.Add(w));
+
+        Assert.Contains("before", content);
+        Assert.Contains("after", content);
+        Assert.Contains("<!-- include doc.md#missing -->", content);
+        Assert.DoesNotContain("usage-body", content);
+        Assert.Contains(warnings, w => w.Contains("#missing", StringComparison.Ordinal) &&
+                                       w.Contains("doc.md", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void HeadingFragment_DuplicateHeadings_UseGitHubDisambiguation()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include doc.md#usage-1 -->\n");
+        dir.Write("doc.md",
+            "## Usage\n" +
+            "first-usage\n" +
+            "## Usage\n" +
+            "second-usage\n" +
+            "## Other\n" +
+            "other\n");
+
+        var content = IncludesResolver.Process(root);
+
+        Assert.Contains("## Usage", content);
+        Assert.Contains("second-usage", content);
+        Assert.DoesNotContain("first-usage", content);
+        Assert.DoesNotContain("other", content);
+    }
+
+    [Fact]
+    public void HeadingFragment_SkipsHeadingsInsideFencedCodeBlocks()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include doc.md#usage -->\n");
+        dir.Write("doc.md",
+            "```\n" +
+            "## Usage\n" +
+            "code-usage\n" +
+            "```\n" +
+            "## Usage\n" +
+            "real-usage\n");
+
+        var content = IncludesResolver.Process(root);
+
+        Assert.Contains("real-usage", content);
+        Assert.DoesNotContain("code-usage", content);
+    }
+
+    [Theory]
+    [InlineData("Usage", "usage")]
+    [InlineData("Hello World", "hello-world")]
+    [InlineData("This'll be fine", "thisll-be-fine")]
+    [InlineData("API / Overview", "api--overview")]
+    [InlineData("C# Tips", "c-tips")]
+    [InlineData("foo_bar", "foo_bar")]
+    [InlineData("get_user_name", "get_user_name")]
+    [InlineData("  Trimmed  ", "trimmed")]
+    [InlineData("_Helpful_ Section", "helpful-section")]
+    [InlineData("A **Bold** Title", "a-bold-title")]
+    public void GitHubHeadingSlug_MatchesExpected(string heading, string expectedSlug)
+    {
+        Assert.Equal(expectedSlug, IncludesResolver.GitHubHeadingSlug(heading));
+    }
+
+    [Fact]
+    public void HeadingFragment_SnakeCaseHeading_KeepsUnderscoresLikeGitHubSlugger()
+    {
+        // Regression: naive _…_ emphasis strip turned get_user_name → getusername and broke #get_user_name.
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include api.md#get_user_name -->\n");
+        dir.Write("api.md",
+            "## Intro\n" +
+            "intro\n" +
+            "## get_user_name\n" +
+            "snake-body\n" +
+            "## Other\n" +
+            "other\n");
+
+        var warnings = new List<string>();
+        var content = IncludesResolver.Process(root, w => warnings.Add(w));
+
+        Assert.Equal("get_user_name", IncludesResolver.GitHubHeadingSlug("get_user_name"));
+        Assert.Contains("## get_user_name", content);
+        Assert.Contains("snake-body", content);
+        Assert.DoesNotContain("intro", content);
+        Assert.DoesNotContain("other", content);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void TryExtractHeadingSection_ReturnsFalseWhenNoMatch()
+    {
+        var ok = IncludesResolver.TryExtractHeadingSection("## Usage\nbody\n", "missing", out var section);
+        Assert.False(ok);
+        Assert.Equal("", section);
+    }
+
     static int CountOccurrences(string haystack, string needle)
     {
         var count = 0;
