@@ -1,4 +1,5 @@
 ﻿using System.IO;
+using Microsoft.Build.Framework;
 using Xunit;
 
 namespace Readme.Tests;
@@ -401,6 +402,347 @@ public class IncludesResolverTests
         var ok = IncludesResolver.TryExtractHeadingSection("## Usage\nbody\n", "missing", out var section);
         Assert.False(ok);
         Assert.Equal("", section);
+    }
+
+    // --- Remote URL policy (scheme allowlist, base-relative, domain allowlist) ---
+
+    static IncludeResolutionOptions RemoteOptions(
+        IDictionary<string, string> store,
+        string? schemes = "https",
+        IEnumerable<string>? domains = null)
+    {
+        return new IncludeResolutionOptions
+        {
+            AllowedSchemes = schemes == null ? null : new[] { schemes },
+            AllowedDomains = domains,
+            FetchRemoteContent = uri =>
+            {
+                var key = uri.AbsoluteUri;
+                if (store.TryGetValue(key, out var body))
+                    return body;
+                // Also try without trailing quirks
+                foreach (var kv in store)
+                {
+                    if (string.Equals(kv.Key, key, StringComparison.OrdinalIgnoreCase))
+                        return kv.Value;
+                }
+                throw new InvalidOperationException($"Test fixture missing content for {key}");
+            },
+        };
+    }
+
+    [Fact]
+    public void Scheme_DefaultHttpsOnly_AllowsHttps_BlocksHttp()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md",
+            "<!-- include https://cdn.example.com/ok.md -->\n" +
+            "<!-- include http://cdn.example.com/plain.md -->\n");
+
+        var store = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["https://cdn.example.com/ok.md"] = "HTTPS-BODY",
+            ["http://cdn.example.com/plain.md"] = "HTTP-BODY",
+        };
+        var warnings = new List<string>();
+        // null schemes → default https only
+        var options = RemoteOptions(store, schemes: null);
+
+        var content = IncludesResolver.Process(root, w => warnings.Add(w), options);
+
+        Assert.Contains("HTTPS-BODY", content);
+        Assert.DoesNotContain("HTTP-BODY", content);
+        Assert.Contains("<!-- include http://cdn.example.com/plain.md -->", content);
+        Assert.Contains(warnings, w =>
+            w.Contains("scheme", StringComparison.OrdinalIgnoreCase) &&
+            w.Contains("http", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Scheme_HttpAllowed_ResolvesHttp()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include http://cdn.example.com/plain.md -->\n");
+
+        var store = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["http://cdn.example.com/plain.md"] = "HTTP-OK",
+        };
+        var warnings = new List<string>();
+        var options = RemoteOptions(store, schemes: "https;http");
+
+        var content = IncludesResolver.Process(root, w => warnings.Add(w), options);
+
+        Assert.Contains("HTTP-OK", content);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void Scheme_Blocked_LeavesMarkerAndWarns()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "before\n<!-- include https://cdn.example.com/x.md -->\nafter\n");
+
+        var store = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["https://cdn.example.com/x.md"] = "SHOULD-NOT-APPEAR",
+        };
+        var warnings = new List<string>();
+        var options = RemoteOptions(store, schemes: "http"); // https not allowed
+
+        var content = IncludesResolver.Process(root, w => warnings.Add(w), options);
+
+        Assert.Contains("before", content);
+        Assert.Contains("after", content);
+        Assert.Contains("<!-- include https://cdn.example.com/x.md -->", content);
+        Assert.DoesNotContain("SHOULD-NOT-APPEAR", content);
+        Assert.Contains(warnings, w => w.Contains("scheme", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void RemoteParent_RelativeInclude_ResolvesAgainstBaseUri()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include https://docs.example.com/guide/index.md -->\n");
+
+        var store = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["https://docs.example.com/guide/index.md"] =
+                "INDEX\n<!-- include ../shared/footer.md -->\n<!-- include section.md -->\n",
+            ["https://docs.example.com/shared/footer.md"] = "FOOTER-BODY",
+            ["https://docs.example.com/guide/section.md"] = "SECTION-BODY",
+        };
+        var warnings = new List<string>();
+        var options = RemoteOptions(store);
+
+        var content = IncludesResolver.Process(root, w => warnings.Add(w), options);
+
+        Assert.Contains("INDEX", content);
+        Assert.Contains("FOOTER-BODY", content);
+        Assert.Contains("SECTION-BODY", content);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void LocalParent_AbsoluteRemote_ResolvesWithoutDomainAllowlist()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include https://unlisted.example.org/page.md -->\n");
+
+        var store = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["https://unlisted.example.org/page.md"] = "LOCAL-HOP-OK",
+        };
+        var warnings = new List<string>();
+        // Empty domain list — still allowed because include is from a local file
+        var options = RemoteOptions(store, domains: Array.Empty<string>());
+
+        var content = IncludesResolver.Process(root, w => warnings.Add(w), options);
+
+        Assert.Contains("LOCAL-HOP-OK", content);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void RemoteParent_AbsoluteUrl_DisallowedHost_WarnsAndLeavesMarker()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include https://safe.example.com/a.md -->\n");
+
+        var store = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["https://safe.example.com/a.md"] =
+                "A\n<!-- include https://evil.example.net/b.md -->\n",
+            ["https://evil.example.net/b.md"] = "EVIL-BODY",
+        };
+        var warnings = new List<string>();
+        var options = RemoteOptions(store); // no domains allowlisted
+
+        var content = IncludesResolver.Process(root, w => warnings.Add(w), options);
+
+        Assert.Contains("A", content);
+        Assert.DoesNotContain("EVIL-BODY", content);
+        Assert.Contains("<!-- include https://evil.example.net/b.md -->", content);
+        Assert.Contains(warnings, w =>
+            w.Contains("host", StringComparison.OrdinalIgnoreCase) &&
+            w.Contains("evil.example.net", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void RemoteParent_AbsoluteUrl_SameHost_Resolves()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include https://docs.example.com/a.md -->\n");
+
+        var store = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["https://docs.example.com/a.md"] =
+                "A\n<!-- include https://docs.example.com/b.md -->\n",
+            ["https://docs.example.com/b.md"] = "SAME-HOST-BODY",
+        };
+        var warnings = new List<string>();
+        var options = RemoteOptions(store);
+
+        var content = IncludesResolver.Process(root, w => warnings.Add(w), options);
+
+        Assert.Contains("SAME-HOST-BODY", content);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void RemoteParent_AbsoluteUrl_SubdomainOfParentHost_Resolves()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include https://example.com/a.md -->\n");
+
+        var store = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["https://example.com/a.md"] =
+                "A\n<!-- include https://cdn.example.com/b.md -->\n",
+            ["https://cdn.example.com/b.md"] = "SUBDOMAIN-BODY",
+        };
+        var warnings = new List<string>();
+        var options = RemoteOptions(store);
+
+        var content = IncludesResolver.Process(root, w => warnings.Add(w), options);
+
+        Assert.Contains("SUBDOMAIN-BODY", content);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void RemoteParent_AbsoluteUrl_AllowlistedDomain_Resolves()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include https://docs.example.com/a.md -->\n");
+
+        var store = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["https://docs.example.com/a.md"] =
+                "A\n<!-- include https://assets.other.org/b.md -->\n",
+            ["https://assets.other.org/b.md"] = "ALLOWLIST-BODY",
+        };
+        var warnings = new List<string>();
+        var options = RemoteOptions(store, domains: new[] { "assets.other.org" });
+
+        var content = IncludesResolver.Process(root, w => warnings.Add(w), options);
+
+        Assert.Contains("ALLOWLIST-BODY", content);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void RemoteParent_AbsoluteUrl_SubdomainOfAllowlistedDomain_Resolves()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include https://docs.example.com/a.md -->\n");
+
+        var store = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["https://docs.example.com/a.md"] =
+                "A\n<!-- include https://raw.cdn.trusted.org/b.md -->\n",
+            ["https://raw.cdn.trusted.org/b.md"] = "ALLOWLIST-SUB-BODY",
+        };
+        var warnings = new List<string>();
+        var options = RemoteOptions(store, domains: new[] { "trusted.org" });
+
+        var content = IncludesResolver.Process(root, w => warnings.Add(w), options);
+
+        Assert.Contains("ALLOWLIST-SUB-BODY", content);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void IsSameHostOrSubdomain_RejectsSuffixTraps()
+    {
+        Assert.True(IncludesResolver.IsSameHostOrSubdomain("example.com", "example.com"));
+        Assert.True(IncludesResolver.IsSameHostOrSubdomain("cdn.example.com", "example.com"));
+        Assert.True(IncludesResolver.IsSameHostOrSubdomain("a.b.example.com", "example.com"));
+        Assert.False(IncludesResolver.IsSameHostOrSubdomain("notexample.com", "example.com"));
+        Assert.False(IncludesResolver.IsSameHostOrSubdomain("evil-example.com", "example.com"));
+        Assert.False(IncludesResolver.IsSameHostOrSubdomain("example.com.evil.net", "example.com"));
+    }
+
+    [Fact]
+    public void ProcessReadmeIncludesTask_AcceptsSchemeAndDomainProperties()
+    {
+        // Verify task property plumbing: schemes/domains flow into Process without error.
+        using var dir = new TempDir();
+        var localOnly = dir.Write("local.md", "<!-- include part.md -->\n");
+        dir.Write("part.md", "PART\n");
+        var output = Path.Combine(dir.Path, "out.md");
+
+        var task = new ProcessReadmeIncludes
+        {
+            SourceFile = localOnly,
+            OutputFile = output,
+            AllowedSchemes = "https;http",
+            AllowedDomains = new ITaskItem[]
+            {
+                new Microsoft.Build.Utilities.TaskItem("trusted.org"),
+            },
+            BuildEngine = new MockBuildEngine(),
+        };
+
+        Assert.True(task.Execute());
+        Assert.Contains("PART", File.ReadAllText(output));
+    }
+
+    [Fact]
+    public void PropsAndTargets_WireSchemeAndDomainDefaults()
+    {
+        // Structural evidence: pack path defaults and task args exist in shipped MSBuild files.
+        var propsPath = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "Readme", "build", "Readme.props"));
+        var targetsPath = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "Readme", "build", "Readme.targets"));
+
+        // Fallback when running from different layouts: repo-relative from test source
+        if (!File.Exists(propsPath))
+        {
+            propsPath = Path.GetFullPath(Path.Combine(
+                AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "Readme", "build", "Readme.props"));
+            targetsPath = Path.GetFullPath(Path.Combine(
+                AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "Readme", "build", "Readme.targets"));
+        }
+
+        // Prefer project-referenced package layout next to the built task assembly copy path
+        var altProps = Path.GetFullPath(Path.Combine(
+            typeof(IncludesResolver).Assembly.Location, "..", "..", "..", "..", "build", "Readme.props"));
+        if (!File.Exists(propsPath) && File.Exists(altProps))
+        {
+            propsPath = altProps;
+            targetsPath = Path.Combine(Path.GetDirectoryName(altProps)!, "Readme.targets");
+        }
+
+        // Last resort: walk up from assembly location looking for src/Readme/build
+        if (!File.Exists(propsPath))
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null)
+            {
+                var candidate = Path.Combine(dir.FullName, "src", "Readme", "build", "Readme.props");
+                if (File.Exists(candidate))
+                {
+                    propsPath = candidate;
+                    targetsPath = Path.Combine(dir.FullName, "src", "Readme", "build", "Readme.targets");
+                    break;
+                }
+                dir = dir.Parent;
+            }
+        }
+
+        Assert.True(File.Exists(propsPath), $"Readme.props not found (tried near test output). Last: {propsPath}");
+        Assert.True(File.Exists(targetsPath), $"Readme.targets not found. Last: {targetsPath}");
+
+        var props = File.ReadAllText(propsPath);
+        var targets = File.ReadAllText(targetsPath);
+
+        Assert.Contains("ReadmeIncludeScheme", props);
+        Assert.Contains("https", props);
+        Assert.Contains("ReadmeIncludeDomain", props);
+        Assert.Contains("AllowedSchemes=\"$(ReadmeIncludeScheme)\"", targets);
+        Assert.Contains("AllowedDomains=\"@(ReadmeIncludeDomain)\"", targets);
     }
 
     static int CountOccurrences(string haystack, string needle)

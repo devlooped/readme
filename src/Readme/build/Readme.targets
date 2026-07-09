@@ -97,7 +97,9 @@
 
     <ProcessReadmeIncludes Condition="'$(_ReadmeSourceFile)' != '' and Exists('$(_ReadmeSourceFile)')"
                            SourceFile="$(_ReadmeSourceFile)"
-                           OutputFile="$(_ReadmeProcessedFile)" />
+                           OutputFile="$(_ReadmeProcessedFile)"
+                           AllowedSchemes="$(ReadmeIncludeScheme)"
+                           AllowedDomains="@(ReadmeIncludeDomain)" />
 
     <!-- Stop packing the unprocessed source; pack the intermediate processed file instead. -->
     <ItemGroup Condition="Exists('$(_ReadmeProcessedFile)')">

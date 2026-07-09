@@ -1,11 +1,35 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Readme;
+
+/// <summary>
+/// Options for <see cref="IncludesResolver.Process"/> remote-include policy and fetch.
+/// </summary>
+public sealed class IncludeResolutionOptions
+{
+    /// <summary>
+    /// Allowed URI schemes for remote includes (e.g. <c>https</c>).
+    /// Semicolon-separated values in each entry are split. When empty/null, defaults to <c>https</c> only.
+    /// </summary>
+    public IEnumerable<string>? AllowedSchemes { get; set; }
+
+    /// <summary>
+    /// Hosts allowed for absolute remote includes originating from remote content.
+    /// Exact host or subdomain match (DNS label boundary). Local-file → remote hops ignore this list.
+    /// </summary>
+    public IEnumerable<string>? AllowedDomains { get; set; }
+
+    /// <summary>
+    /// Optional remote content fetcher (tests / custom transport). Default uses <see cref="HttpClient"/>.
+    /// </summary>
+    public Func<Uri, string>? FetchRemoteContent { get; set; }
+}
 
 /// <summary>
 /// Resolves <c>&lt;!-- include path --&gt;</c> directives in markdown (and similar) files.
@@ -35,9 +59,19 @@ public class IncludesResolver
     /// <param name="filePath">Root file or absolute HTTP(S) URL to process.</param>
     /// <param name="logWarning">Optional warning sink (missing includes, fragments, cycles).</param>
     public static string Process(string filePath, Action<string>? logWarning = default)
-        => Process(filePath, logWarning, ancestry: null);
+        => Process(filePath, logWarning, options: null);
 
-    static string Process(string filePath, Action<string>? logWarning, HashSet<string>? ancestry)
+    /// <summary>
+    /// Processes include directives with scheme/domain policy and optional remote fetch.
+    /// </summary>
+    public static string Process(string filePath, Action<string>? logWarning, IncludeResolutionOptions? options)
+        => Process(filePath, logWarning, options, ancestry: null);
+
+    static string Process(
+        string filePath,
+        Action<string>? logWarning,
+        IncludeResolutionOptions? options,
+        HashSet<string>? ancestry)
     {
         ancestry ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var resourceKey = ToResourceKey(filePath);
@@ -46,7 +80,7 @@ public class IncludesResolver
         ancestry.Add(resourceKey);
         try
         {
-            return ProcessCore(filePath, logWarning, ancestry);
+            return ProcessCore(filePath, logWarning, options, ancestry);
         }
         finally
         {
@@ -54,17 +88,23 @@ public class IncludesResolver
         }
     }
 
-    static string ProcessCore(string filePath, Action<string>? logWarning, HashSet<string> ancestry)
+    static string ProcessCore(
+        string filePath,
+        Action<string>? logWarning,
+        IncludeResolutionOptions? options,
+        HashSet<string> ancestry)
     {
+        var schemes = NormalizeSchemes(options?.AllowedSchemes);
+        var domains = NormalizeDomains(options?.AllowedDomains);
+        var isRemoteResource = TryGetHttpUri(filePath, out var selfUri);
+
         string? content = null;
 
-        if (Uri.TryCreate(filePath, UriKind.Absolute, out var uri) &&
-            (uri.Scheme == "http" || uri.Scheme == "https"))
+        if (isRemoteResource)
         {
             try
             {
-                // Synchronous wait keeps MSBuild task model simple; failures are warnings.
-                content = http.GetStringAsync(uri).GetAwaiter().GetResult().Trim();
+                content = FetchRemote(selfUri!, options).Trim();
             }
             catch (Exception ex)
             {
@@ -89,6 +129,12 @@ public class IncludesResolver
 
         var replacements = new Dictionary<Regex, string>();
 
+        // Context for includes nested inside *this* resource:
+        // - local file: nested absolute remotes are always domain-safe
+        // - remote file: nested absolute remotes need allowlist / same host / subdomain
+        var thisIsRemote = isRemoteResource;
+        var thisRemoteHost = isRemoteResource ? selfUri!.Host : null;
+
         foreach (Match match in IncludeRegex.Matches(content!))
         {
             var includedPath = match.Groups[1].Value.Trim();
@@ -99,59 +145,90 @@ public class IncludesResolver
                 includedPath = includedPath.Split('#')[0];
             }
 
-            var isUri = Uri.IsWellFormedUriString(includedPath, UriKind.Absolute);
-            var includedFullPath = isUri
-                ? includedPath
-                : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(filePath) ?? "", includedPath));
-
-            if (isUri || File.Exists(includedFullPath))
+            if (!TryResolveIncludeTarget(
+                    filePath,
+                    thisIsRemote,
+                    selfUri,
+                    includedPath,
+                    out var targetPath,
+                    out var targetIsRemote,
+                    out var targetUri,
+                    out var resolveError))
             {
-                var includedKey = ToResourceKey(isUri ? includedPath : includedFullPath);
-                if (ancestry.Contains(includedKey))
+                logWarning?.Invoke(resolveError ?? $"Failed to resolve include: {includedPath}{fragment}.");
+                continue;
+            }
+
+            if (targetIsRemote)
+            {
+                if (!schemes.Contains(targetUri!.Scheme))
                 {
-                    // Circular include: warn and leave the <!-- include ... --> marker unresolved.
                     logWarning?.Invoke(
-                        $"Circular include detected: {includedPath}{fragment} resolves to {includedKey}, which is already being processed.");
+                        $"Blocked include URL scheme '{targetUri.Scheme}' for {includedPath}{fragment}. " +
+                        $"Allowed schemes: {string.Join(", ", schemes.OrderBy(s => s, StringComparer.OrdinalIgnoreCase))}.");
                     continue;
                 }
 
-                // Resolve nested includes (ancestry tracks the chain; diamond re-includes are allowed).
-                var includedContent = Process(isUri ? includedPath : includedFullPath, logWarning, ancestry);
-                if (fragment != null)
+                // Local → remote absolute: always domain-safe. Remote → remote: host policy.
+                if (thisIsRemote &&
+                    !IsHostAllowed(targetUri.Host, domains, thisRemoteHost))
                 {
-                    var anchor = $"<!-- {fragment} -->";
-                    var start = includedContent.IndexOf(anchor, StringComparison.Ordinal);
-                    if (start != -1)
-                    {
-                        // Explicit comment anchors win over heading auto-anchors.
-                        includedContent = includedContent.Substring(start);
-                        var end = includedContent.IndexOf(anchor, anchor.Length, StringComparison.Ordinal);
-                        if (end != -1)
-                            includedContent = includedContent.Substring(0, end + anchor.Length);
-                    }
-                    else if (TryExtractHeadingSection(includedContent, fragment.Substring(1), out var headingSection))
-                    {
-                        includedContent = headingSection;
-                    }
-                    else
-                    {
-                        logWarning?.Invoke($"Failed to resolve anchor {fragment} in {includedPath}.");
-                        continue;
-                    }
+                    logWarning?.Invoke(
+                        $"Blocked include URL host '{targetUri.Host}' for {includedPath}{fragment}. " +
+                        "Absolute remote includes from remote content require a host in @(ReadmeIncludeDomain), " +
+                        "or the same host / a subdomain of the including remote resource.");
+                    continue;
                 }
-
-                // see if we already have a section we previously replaced
-                var existingRegex = new Regex(@$"<!--\s?include {Regex.Escape(includedPath)}{Regex.Escape(fragment ?? "")}\s?-->[\s\S]*<!-- {Regex.Escape(includedPath)}{Regex.Escape(fragment ?? "")} -->");
-                var replacement = $"<!-- include {includedPath}{fragment} -->{Environment.NewLine}{includedContent}{Environment.NewLine}<!-- {includedPath}{fragment} -->";
-                if (existingRegex.IsMatch(content!))
-                    replacements[existingRegex] = replacement;
-                else
-                    replacements[new Regex(@$"<!--\s?include {Regex.Escape(includedPath)}{Regex.Escape(fragment ?? "")}\s?-->")] = replacement;
             }
-            else
+            else if (!File.Exists(targetPath))
             {
-                logWarning?.Invoke($"Failed to resolve include: {includedPath}{fragment}. File not found at expected location {includedFullPath}.");
+                logWarning?.Invoke(
+                    $"Failed to resolve include: {includedPath}{fragment}. File not found at expected location {targetPath}.");
+                continue;
             }
+
+            var includedKey = ToResourceKey(targetPath);
+            if (ancestry.Contains(includedKey))
+            {
+                // Circular include: warn and leave the <!-- include ... --> marker unresolved.
+                logWarning?.Invoke(
+                    $"Circular include detected: {includedPath}{fragment} resolves to {includedKey}, which is already being processed.");
+                continue;
+            }
+
+            // Resolve nested includes (ancestry tracks the chain; diamond re-includes are allowed).
+            var includedContent = Process(targetPath, logWarning, options, ancestry);
+
+            if (fragment != null)
+            {
+                var anchor = $"<!-- {fragment} -->";
+                var start = includedContent.IndexOf(anchor, StringComparison.Ordinal);
+                if (start != -1)
+                {
+                    // Explicit comment anchors win over heading auto-anchors.
+                    includedContent = includedContent.Substring(start);
+                    var end = includedContent.IndexOf(anchor, anchor.Length, StringComparison.Ordinal);
+                    if (end != -1)
+                        includedContent = includedContent.Substring(0, end + anchor.Length);
+                }
+                else if (TryExtractHeadingSection(includedContent, fragment.Substring(1), out var headingSection))
+                {
+                    includedContent = headingSection;
+                }
+                else
+                {
+                    logWarning?.Invoke($"Failed to resolve anchor {fragment} in {includedPath}.");
+                    continue;
+                }
+            }
+
+            // see if we already have a section we previously replaced
+            var existingRegex = new Regex(@$"<!--\s?include {Regex.Escape(includedPath)}{Regex.Escape(fragment ?? "")}\s?-->[\s\S]*<!-- {Regex.Escape(includedPath)}{Regex.Escape(fragment ?? "")} -->");
+            var replacement = $"<!-- include {includedPath}{fragment} -->{Environment.NewLine}{includedContent}{Environment.NewLine}<!-- {includedPath}{fragment} -->";
+            if (existingRegex.IsMatch(content!))
+                replacements[existingRegex] = replacement;
+            else
+                replacements[new Regex(@$"<!--\s?include {Regex.Escape(includedPath)}{Regex.Escape(fragment ?? "")}\s?-->")] = replacement;
         }
 
         if (replacements.Count > 0)
@@ -164,6 +241,191 @@ public class IncludesResolver
         }
 
         return content!;
+    }
+
+    /// <summary>
+    /// Resolves an include path against a local or remote parent into a fetch/read target.
+    /// </summary>
+    static bool TryResolveIncludeTarget(
+        string parentPath,
+        bool parentIsRemote,
+        Uri? parentUri,
+        string includedPath,
+        out string targetPath,
+        out bool targetIsRemote,
+        out Uri? targetUri,
+        out string? error)
+    {
+        targetPath = "";
+        targetIsRemote = false;
+        targetUri = null;
+        error = null;
+
+        var includeIsAbsoluteUri = Uri.IsWellFormedUriString(includedPath, UriKind.Absolute);
+
+        if (parentIsRemote && parentUri != null)
+        {
+            // Remote parent: relative paths combine against the parent URI base.
+            try
+            {
+                var resolved = includeIsAbsoluteUri
+                    ? new Uri(includedPath, UriKind.Absolute)
+                    : new Uri(parentUri, includedPath);
+
+                if (resolved.Scheme == "http" || resolved.Scheme == "https")
+                {
+                    targetUri = resolved;
+                    targetPath = resolved.AbsoluteUri;
+                    targetIsRemote = true;
+                    return true;
+                }
+
+                error = $"Unsupported include URI scheme '{resolved.Scheme}' for {includedPath}.";
+                return false;
+            }
+            catch (UriFormatException ex)
+            {
+                error = $"Failed to resolve include '{includedPath}' against remote base '{parentUri}': {ex.Message}";
+                return false;
+            }
+        }
+
+        // Local parent
+        if (includeIsAbsoluteUri &&
+            Uri.TryCreate(includedPath, UriKind.Absolute, out var abs) &&
+            (abs.Scheme == "http" || abs.Scheme == "https"))
+        {
+            targetUri = abs;
+            targetPath = abs.AbsoluteUri;
+            targetIsRemote = true;
+            return true;
+        }
+
+        if (includeIsAbsoluteUri)
+        {
+            // Non-http absolute URI: leave as path string (legacy / rare).
+            targetPath = includedPath;
+            targetIsRemote = false;
+            return true;
+        }
+
+        targetPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(parentPath) ?? "", includedPath));
+        targetIsRemote = false;
+        return true;
+    }
+
+    static string FetchRemote(Uri uri, IncludeResolutionOptions? options)
+    {
+        if (options?.FetchRemoteContent != null)
+            return options.FetchRemoteContent(uri);
+
+        // Synchronous wait keeps MSBuild task model simple; failures are warnings.
+        return http.GetStringAsync(uri).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// True when <paramref name="host"/> equals <paramref name="allowedRoot"/> or is a DNS subdomain of it.
+    /// Also true when <paramref name="host"/> matches any entry in <paramref name="allowedDomains"/> (or is a subdomain of one).
+    /// </summary>
+    public static bool IsHostAllowed(string host, IEnumerable<string>? allowedDomains, string? includingRemoteHost)
+    {
+        if (string.IsNullOrWhiteSpace(host))
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(includingRemoteHost) &&
+            IsSameHostOrSubdomain(host, includingRemoteHost!))
+            return true;
+
+        if (allowedDomains == null)
+            return false;
+
+        foreach (var domain in allowedDomains)
+        {
+            if (string.IsNullOrWhiteSpace(domain))
+                continue;
+            if (IsSameHostOrSubdomain(host, domain.Trim()))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Case-insensitive host equality or DNS-label subdomain (<c>foo.example.com</c> of <c>example.com</c>).
+    /// Rejects string-suffix traps (<c>notexample.com</c> is not under <c>example.com</c>).
+    /// </summary>
+    public static bool IsSameHostOrSubdomain(string host, string root)
+    {
+        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(root))
+            return false;
+
+        host = host.Trim().TrimEnd('.').ToLowerInvariant();
+        root = root.Trim().TrimEnd('.').ToLowerInvariant();
+
+        if (host.Length == 0 || root.Length == 0)
+            return false;
+
+        if (string.Equals(host, root, StringComparison.Ordinal))
+            return true;
+
+        // Subdomain requires a dot boundary: host == "*." + root
+        return host.Length > root.Length + 1 &&
+               host.EndsWith("." + root, StringComparison.Ordinal);
+    }
+
+    internal static HashSet<string> NormalizeSchemes(IEnumerable<string>? schemes)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (schemes != null)
+        {
+            foreach (var entry in schemes)
+            {
+                if (string.IsNullOrWhiteSpace(entry))
+                    continue;
+                foreach (var part in entry.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var trimmed = part.Trim();
+                    if (trimmed.Length > 0)
+                        set.Add(trimmed);
+                }
+            }
+        }
+
+        if (set.Count == 0)
+            set.Add("https");
+
+        return set;
+    }
+
+    internal static HashSet<string> NormalizeDomains(IEnumerable<string>? domains)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (domains == null)
+            return set;
+
+        foreach (var entry in domains)
+        {
+            if (string.IsNullOrWhiteSpace(entry))
+                continue;
+            var trimmed = entry.Trim().TrimEnd('.');
+            if (trimmed.Length > 0)
+                set.Add(trimmed);
+        }
+
+        return set;
+    }
+
+    static bool TryGetHttpUri(string path, out Uri? uri)
+    {
+        uri = null;
+        if (Uri.TryCreate(path, UriKind.Absolute, out var created) &&
+            (created.Scheme == "http" || created.Scheme == "https"))
+        {
+            uri = created;
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
