@@ -40,6 +40,10 @@ __*__
 *.nuget.props
 *.nuget.targets
 
+# Task assembly copied into package build/ folder during pack
+src/Readme/build/Readme.dll
+
+
 node_modules
 _site
 .jekyll-metadata

@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <!--
+    Readme package props: defaults only.
+    PackageReadmeFile inference runs in targets (after the project file) so PackReadme=false
+    in the csproj can opt out without leaving PackageReadmeFile set (SDK Pack NU5039).
+  -->
+
+  <PropertyGroup>
+    <!-- Whether to automatically pack the package readme (default readme.md / PackageReadmeFile). -->
+    <PackReadme Condition="'$(PackReadme)' == ''">true</PackReadme>
+  </PropertyGroup>
+</Project>
