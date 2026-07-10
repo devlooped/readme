@@ -386,6 +386,109 @@ public class IncludesResolverTests
         Assert.DoesNotContain("code-usage", content);
     }
 
+    [Fact]
+    public void ExcludeCodeBlock_DoesNotResolveIncludesInside()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md",
+            "before\n" +
+            "```exclude\n" +
+            "<!-- include part.md -->\n" +
+            "```\n" +
+            "after\n");
+        dir.Write("part.md", "PART-BODY\n");
+
+        var warnings = new List<string>();
+        var content = IncludesResolver.Process(root, w => warnings.Add(w));
+
+        Assert.Contains("before", content);
+        Assert.Contains("after", content);
+        // Literal include syntax preserved for documentation
+        Assert.Contains("```exclude", content);
+        Assert.Contains("<!-- include part.md -->", content);
+        Assert.DoesNotContain("PART-BODY", content);
+        Assert.DoesNotContain("<!-- part.md -->", content);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void ExcludeCodeBlock_SamePathOutsideStillResolves()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md",
+            "<!-- include part.md -->\n" +
+            "\n" +
+            "```exclude\n" +
+            "<!-- include part.md -->\n" +
+            "```\n");
+        dir.Write("part.md", "PART-BODY\n");
+
+        var content = IncludesResolver.Process(root);
+        var normalized = content.Replace("\r\n", "\n");
+
+        // Outside fence: expanded
+        Assert.Contains("PART-BODY", normalized);
+        Assert.Contains("<!-- part.md -->", normalized);
+
+        // Inside exclude fence: still the bare marker (exactly one bare-only occurrence remains in the fence)
+        var fenceStart = normalized.IndexOf("```exclude\n", StringComparison.Ordinal);
+        Assert.True(fenceStart >= 0);
+        var fenceEnd = normalized.IndexOf("\n```", fenceStart + 1, StringComparison.Ordinal);
+        Assert.True(fenceEnd > fenceStart);
+        var fenceBody = normalized.Substring(fenceStart, fenceEnd - fenceStart);
+        Assert.Contains("<!-- include part.md -->", fenceBody);
+        Assert.DoesNotContain("PART-BODY", fenceBody);
+    }
+
+    [Fact]
+    public void ExcludeCodeBlock_TildeFence_DoesNotResolveIncludes()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md",
+            "~~~exclude\n" +
+            "<!-- include part.md -->\n" +
+            "~~~\n");
+        dir.Write("part.md", "PART-BODY\n");
+
+        var content = IncludesResolver.Process(root);
+
+        Assert.Contains("<!-- include part.md -->", content);
+        Assert.DoesNotContain("PART-BODY", content);
+    }
+
+    [Fact]
+    public void NonExcludeCodeBlock_StillResolvesIncludes()
+    {
+        // Only the `exclude` language opts out; other fences still expand includes.
+        using var dir = new TempDir();
+        var root = dir.Write("root.md",
+            "```markdown\n" +
+            "<!-- include part.md -->\n" +
+            "```\n");
+        dir.Write("part.md", "PART-BODY\n");
+
+        var content = IncludesResolver.Process(root);
+
+        Assert.Contains("PART-BODY", content);
+        Assert.Contains("<!-- part.md -->", content);
+    }
+
+    [Fact]
+    public void ExcludeCodeBlock_CaseInsensitiveLanguage()
+    {
+        using var dir = new TempDir();
+        var root = dir.Write("root.md",
+            "```Exclude\n" +
+            "<!-- include part.md -->\n" +
+            "```\n");
+        dir.Write("part.md", "PART-BODY\n");
+
+        var content = IncludesResolver.Process(root);
+
+        Assert.Contains("<!-- include part.md -->", content);
+        Assert.DoesNotContain("PART-BODY", content);
+    }
+
     [Theory]
     [InlineData("Usage", "usage")]
     [InlineData("Hello World", "hello-world")]

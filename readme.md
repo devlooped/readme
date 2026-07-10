@@ -24,7 +24,7 @@ When the project is packable and a `readme.md` (or `$(PackageReadmeFile)`) is pr
 
 This package's own project-level `readme.md` is essentially three includes:
 
-```markdown
+```exclude
 <!-- include ../../readme.md#content -->
 
 <!-- include https://github.com/devlooped/.github/raw/main/osmf.md -->
@@ -52,6 +52,8 @@ Fragments resolve in this order:
 Use explicit `<!-- #fragment -->` markup when you need maximum control over whether the section name is included; auto-anchors always include the matching heading.
 
 Unresolved includes log a warning and leave the marker in place (pack does not fail).
+
+To document the include syntax itself without expansion, put example directives in a fenced code block with language `exclude` (as in the example above). Includes in other code fences are still resolved.
 
 ### Remote includes
 
