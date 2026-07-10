@@ -20,6 +20,26 @@ When the project is packable and a `readme.md` (or `$(PackageReadmeFile)`) is pr
 2. Include directives are resolved before pack (local files, nested includes, `#fragment` sections, HTTP(S) URLs).
 3. The processed file is written under `$(BaseIntermediateOutputPath)` and **that** intermediate file is what is packed.
 
+### Example
+
+This package's own project-level `readme.md` is essentially three includes:
+
+```markdown
+<!-- include ../../readme.md#content -->
+
+<!-- include https://github.com/devlooped/.github/raw/main/osmf.md -->
+
+<!-- include https://github.com/devlooped/sponsors/raw/main/footer.md -->
+```
+
+| Include | What it does |
+|---------|----------------|
+| `../../readme.md#content` | Local file + `#fragment` — pulls the docs body between matching `<!-- #content -->` … `<!-- #content -->` anchors in the repo readme |
+| `https://…/osmf.md` | Remote HTTPS — shared Open Source Maintenance Fee / EULA notice |
+| `https://…/footer.md` | Remote HTTPS — shared sponsors footer |
+
+That keeps the package readme short, reuses the repo docs, and keeps EULA and sponsors in sync across packages.
+
 ### Include syntax
 
 Use an HTML comment starting with `include` and a path (relative file, `#fragment`, or `http(s)` URL). Nested includes are supported.
