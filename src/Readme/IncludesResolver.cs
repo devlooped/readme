@@ -35,6 +35,8 @@ public sealed class IncludeResolutionOptions
 /// Resolves <c>&lt;!-- include path --&gt;</c> directives in markdown (and similar) files.
 /// Supports nested includes, <c>#fragment</c> sections, and HTTP(S) URLs.
 /// Detects circular includes via an ancestry chain of canonical resource keys.
+/// Includes inside fenced code blocks with language <c>exclude</c> are left unresolved
+/// so documentation can show the include syntax literally.
 /// Ported from NuGetizer for dual use with SDK Pack and NuGetizer.
 /// </summary>
 public class IncludesResolver
@@ -127,7 +129,9 @@ public class IncludesResolver
         //if (content.StartsWith("<!-- exclude -->") || content.EndsWith("<!-- exclude -->"))
         //    return content;
 
-        var replacements = new Dictionary<Regex, string>();
+        // Position-based expansions so the same include path outside an ```exclude block
+        // can resolve while the literal copy inside the block is left alone.
+        var expansions = new List<(int Index, int Length, string Text)>();
 
         // Context for includes nested inside *this* resource:
         // - local file: nested absolute remotes are always domain-safe
@@ -135,8 +139,19 @@ public class IncludesResolver
         var thisIsRemote = isRemoteResource;
         var thisRemoteHost = isRemoteResource ? selfUri!.Host : null;
 
+        // Includes inside ```exclude / ~~~exclude fenced blocks are left literal
+        // so docs can show the include syntax without resolving it.
+        var excludeRanges = FindExcludeCodeBlockRanges(content!);
+
         foreach (Match match in IncludeRegex.Matches(content!))
         {
+            if (IsIndexInsideRanges(match.Index, excludeRanges))
+                continue;
+
+            // Skip include markers that sit inside a span we already scheduled (re-process of nested expands).
+            if (IsIndexInsideExpansion(match.Index, expansions))
+                continue;
+
             var includedPath = match.Groups[1].Value.Trim();
             string? fragment = default;
             if (includedPath.Contains("#"))
@@ -224,25 +239,56 @@ public class IncludesResolver
                 }
             }
 
-            // see if we already have a section we previously replaced
-            var existingRegex = new Regex(@$"<!--\s?include {Regex.Escape(includedPath)}{Regex.Escape(fragment ?? "")}\s?-->[\s\S]*<!-- {Regex.Escape(includedPath)}{Regex.Escape(fragment ?? "")} -->");
             var replacement = $"<!-- include {includedPath}{fragment} -->{Environment.NewLine}{includedContent}{Environment.NewLine}<!-- {includedPath}{fragment} -->";
-            if (existingRegex.IsMatch(content!))
-                replacements[existingRegex] = replacement;
-            else
-                replacements[new Regex(@$"<!--\s?include {Regex.Escape(includedPath)}{Regex.Escape(fragment ?? "")}\s?-->")] = replacement;
+
+            // If this marker already wraps expanded content (idempotent re-process), replace the whole span.
+            var existingRegex = new Regex(
+                @$"<!--\s?include {Regex.Escape(includedPath)}{Regex.Escape(fragment ?? "")}\s?-->[\s\S]*?<!-- {Regex.Escape(includedPath)}{Regex.Escape(fragment ?? "")} -->",
+                RegexOptions.None);
+            var existingMatch = existingRegex.Match(content!, match.Index);
+            var length = existingMatch.Success && existingMatch.Index == match.Index
+                ? existingMatch.Length
+                : match.Length;
+
+            expansions.Add((match.Index, length, replacement));
         }
 
-        if (replacements.Count > 0)
+        if (expansions.Count == 0)
+            return content!;
+
+        return ApplyExpansions(content!, expansions).Trim();
+    }
+
+    static bool IsIndexInsideExpansion(int index, List<(int Index, int Length, string Text)> expansions)
+    {
+        foreach (var (start, length, _) in expansions)
         {
-            var updated = content!;
-            foreach (var replacement in replacements)
-                updated = replacement.Key.Replace(updated, replacement.Value);
-
-            return updated.Trim();
+            if (index >= start && index < start + length)
+                return true;
         }
 
-        return content!;
+        return false;
+    }
+
+    static string ApplyExpansions(string content, List<(int Index, int Length, string Text)> expansions)
+    {
+        // Matches are collected left-to-right and non-overlapping; splice in one pass.
+        var sb = new StringBuilder(content.Length);
+        var pos = 0;
+        foreach (var (index, length, text) in expansions.OrderBy(e => e.Index))
+        {
+            if (index < pos)
+                continue; // overlapping guard (should not happen)
+
+            sb.Append(content, pos, index - pos);
+            sb.Append(text);
+            pos = index + length;
+        }
+
+        if (pos < content.Length)
+            sb.Append(content, pos, content.Length - pos);
+
+        return sb.ToString();
     }
 
     /// <summary>
@@ -587,20 +633,146 @@ public class IncludesResolver
     }
 
     static bool IsCodeFenceLine(string line)
+        => TryParseFenceLine(line, out _, out _, out _);
+
+    /// <summary>
+    /// Character ranges of fenced code blocks whose info-string language is <c>exclude</c>
+    /// (<c>```exclude</c> / <c>~~~exclude</c>). Includes inside these ranges are not resolved.
+    /// </summary>
+    static List<(int Start, int End)> FindExcludeCodeBlockRanges(string content)
     {
+        var ranges = new List<(int Start, int End)>();
+        if (string.IsNullOrEmpty(content))
+            return ranges;
+
+        // Normalize line endings for scanning; map back via original indices by walking content.
+        var i = 0;
+        char? openFenceChar = null;
+        var openFenceLength = 0;
+        var openStart = 0;
+        var inExcludeFence = false;
+
+        while (i < content.Length)
+        {
+            var lineStart = i;
+            while (i < content.Length && content[i] != '\n' && content[i] != '\r')
+                i++;
+
+            var lineEnd = i; // exclusive, without newline
+            // Consume newline (\n or \r\n or \r)
+            if (i < content.Length && content[i] == '\r')
+            {
+                i++;
+                if (i < content.Length && content[i] == '\n')
+                    i++;
+            }
+            else if (i < content.Length && content[i] == '\n')
+            {
+                i++;
+            }
+
+            var line = content.Substring(lineStart, lineEnd - lineStart);
+
+            if (!TryParseFenceLine(line, out var fenceChar, out var fenceLength, out var infoString))
+                continue;
+
+            if (!inExcludeFence)
+            {
+                // Opening fence: language is first token of info string.
+                if (IsExcludeFenceLanguage(infoString))
+                {
+                    inExcludeFence = true;
+                    openFenceChar = fenceChar;
+                    openFenceLength = fenceLength;
+                    openStart = lineStart;
+                }
+
+                continue;
+            }
+
+            // Closing fence: same character, at least as long, empty info string.
+            if (fenceChar == openFenceChar &&
+                fenceLength >= openFenceLength &&
+                string.IsNullOrEmpty(infoString))
+            {
+                // Inclusive end: last char of this line (before newline), or EOF.
+                var rangeEnd = lineEnd > lineStart ? lineEnd : lineStart;
+                ranges.Add((openStart, rangeEnd));
+                inExcludeFence = false;
+                openFenceChar = null;
+                openFenceLength = 0;
+            }
+        }
+
+        // Unclosed exclude fence: rest of document is excluded (CommonMark-style).
+        if (inExcludeFence)
+            ranges.Add((openStart, content.Length));
+
+        return ranges;
+    }
+
+    static bool IsExcludeFenceLanguage(string? infoString)
+    {
+        if (string.IsNullOrWhiteSpace(infoString))
+            return false;
+
+        // First token of the info string is the language tag.
+        var token = infoString!.Trim();
+        var space = token.IndexOfAny(new[] { ' ', '\t' });
+        if (space >= 0)
+            token = token.Substring(0, space);
+
+        return string.Equals(token, "exclude", StringComparison.OrdinalIgnoreCase);
+    }
+
+    static bool IsIndexInsideRanges(int index, List<(int Start, int End)> ranges)
+    {
+        foreach (var (start, end) in ranges)
+        {
+            // [Start, End) half-open; End is first char after the range body/fence line.
+            if (index >= start && index < end)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Parses a CommonMark-style fence line: 0–3 spaces, 3+ <c>`</c> or <c>~</c>, optional info string.
+    /// </summary>
+    static bool TryParseFenceLine(string line, out char fenceChar, out int fenceLength, out string? infoString)
+    {
+        fenceChar = default;
+        fenceLength = 0;
+        infoString = null;
+
         var leading = 0;
         while (leading < line.Length && leading < 4 && line[leading] == ' ')
             leading++;
 
-        if (leading > 3)
+        if (leading > 3 || leading >= line.Length)
             return false;
 
-        if (leading >= line.Length)
+        var c = line[leading];
+        if (c != '`' && c != '~')
             return false;
 
-        var rest = line.Substring(leading);
-        return rest.StartsWith("```", StringComparison.Ordinal) ||
-               rest.StartsWith("~~~", StringComparison.Ordinal);
+        var i = leading;
+        while (i < line.Length && line[i] == c)
+            i++;
+
+        fenceLength = i - leading;
+        if (fenceLength < 3)
+            return false;
+
+        fenceChar = c;
+        var rest = i < line.Length ? line.Substring(i) : "";
+        // Backtick fences cannot have backticks in the info string (CommonMark).
+        if (c == '`' && rest.IndexOf('`') >= 0)
+            return false;
+
+        infoString = rest.Trim();
+        return true;
     }
 
     static string JoinLines(string[] lines, int startInclusive, int endExclusive)
