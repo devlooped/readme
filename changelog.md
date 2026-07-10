@@ -1,23 +1,12 @@
 # Changelog
 
-## [v1.0.0-rc](https://github.com/devlooped/readme/tree/v1.0.0-rc) (2026-07-09)
+## [v1.0.0](https://github.com/devlooped/readme/tree/v1.0.0) (2026-07-09)
 
-[Full Changelog](https://github.com/devlooped/readme/compare/v1.0.0-beta...v1.0.0-rc)
+[Full Changelog](https://github.com/devlooped/readme/compare/v0.1.0...v1.0.0)
 
 :sparkles: Implemented enhancements:
 
 - docs: auto-anchor includes heading; explicit markers control title [\#10](https://github.com/devlooped/readme/pull/10) (@kzu)
-
-## [v1.0.0-beta](https://github.com/devlooped/readme/tree/v1.0.0-beta) (2026-07-09)
-
-[Full Changelog](https://github.com/devlooped/readme/compare/v1.0.0-alpha...v1.0.0-beta)
-
-## [v1.0.0-alpha](https://github.com/devlooped/readme/tree/v1.0.0-alpha) (2026-07-09)
-
-[Full Changelog](https://github.com/devlooped/readme/compare/v0.1.0...v1.0.0-alpha)
-
-:sparkles: Implemented enhancements:
-
 - Safer remote include schemes, base-relative paths, domain allowlist [\#8](https://github.com/devlooped/readme/pull/8) (@kzu)
 - GitHub heading auto-anchor fallback for include fragments [\#7](https://github.com/devlooped/readme/pull/7) (@kzu)
 - Detect circular includes via ancestry of canonical paths [\#6](https://github.com/devlooped/readme/pull/6) (@kzu)
