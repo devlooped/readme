@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.0.1](https://github.com/devlooped/readme/tree/v1.0.1) (2026-07-10)
+
+[Full Changelog](https://github.com/devlooped/readme/compare/v1.0.0...v1.0.1)
+
+:sparkles: Implemented enhancements:
+
+- Skip include resolution inside exclude fenced code blocks [\#11](https://github.com/devlooped/readme/pull/11) (@kzu)
+
 ## [v1.0.0](https://github.com/devlooped/readme/tree/v1.0.0) (2026-07-09)
 
 [Full Changelog](https://github.com/devlooped/readme/compare/v0.1.0...v1.0.0)
