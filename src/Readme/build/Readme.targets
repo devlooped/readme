@@ -15,6 +15,11 @@
   <UsingTask TaskName="Readme.ProcessReadmeIncludes" AssemblyFile="$(_ReadmeTaskAssembly)"
              Condition="Exists('$(_ReadmeTaskAssembly)')" />
 
+  <ItemGroup>
+    <!-- Readme should *always* be a private asset so it never becomes a package dependency. -->
+    <PackageReference Update="Readme" PrivateAssets="all" Pack="false" />
+  </ItemGroup>
+
   <!--
     PackReadme=false: clear PackageReadmeFile so SDK Pack does not expect a packed readme.
     Also covers PackageReadmeFile set earlier by Directory.Build.* or other imports.

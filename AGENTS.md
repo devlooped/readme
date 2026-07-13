@@ -28,7 +28,8 @@ Compatible with both SDK Pack and NuGetizer. Does not require NuGetizer.
 - **Warnings not errors**: missing includes / anchors call `Log.LogWarning` and leave markers in place.
 - **` ```exclude ` fences**: includes inside fenced code blocks with language `exclude` are left literal (for documenting include syntax).
 - **Fragment resolution**: explicit `<!-- #fragment -->` pairs win (placement controls whether a section title is included); otherwise GitHub heading auto-anchors match and **include the heading line** (e.g. `## Usage` for `#usage`).
-- **Package layout**: development dependency; task DLL + props/targets under `build/` (and `buildTransitive/`). Primary output is not under `lib/` (`IncludeBuildOutput=false`).
+- **Package layout**: development dependency (`DevelopmentDependency=true`); task DLL + props/targets under `build/` (and `buildTransitive/`). Primary output is not under `lib/` (`IncludeBuildOutput=false`).
+- **Self-private asset** (NuGetizer pattern): `build/Readme.targets` does `<PackageReference Update="Readme" PrivateAssets="all" Pack="false" />` so consumers never need to set `PrivateAssets` and pack never emits Readme as a dependency.
 - **Self-pack caveat**: this repo’s `Directory.Build.targets` matches None items with Filename `readme` case-insensitively, which also hits `Readme.props` / `Readme.targets`. `FixBuildPackagePaths` in `Readme.csproj` restores correct `PackagePath` values before NuGetizer packs the package itself.
 - **PackReadme=false**: `PackageReadmeFile` is inferred only in targets (after the project file). When `PackReadme=false`, evaluation-time and pre-pack targets clear `PackageReadmeFile` and set Pack=false on readme items so SDK Pack does not hit NU5039.
 

@@ -21,10 +21,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Build.Tasks.Core" Version="17.11.48" PrivateAssets="all" />
-    <PackageReference Include="NuGetizer" Version="1.4.9">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
+    <PackageReference Include="NuGetizer" Version="1.4.9" />
   </ItemGroup>
 
   <ItemGroup>

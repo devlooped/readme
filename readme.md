@@ -11,8 +11,10 @@ Adds automatic package readme packing and include-directive resolution at pack t
 Works with **SDK Pack** and **NuGetizer** (no NuGetizer required).
 
 ```xml
-<PackageReference Include="Readme" Version="*" PrivateAssets="all" />
+<PackageReference Include="Readme" Version="*" />
 ```
+
+You don't need to set `PrivateAssets=all`: Readme is a development dependency and automatically excludes itself from packed dependencies.
 
 When the project is packable and a `readme.md` (or `$(PackageReadmeFile)`) is present:
 
