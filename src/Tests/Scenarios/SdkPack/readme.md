@@ -1,5 +1,7 @@
 # SdkPack sample
 
+Package **$id$** v$version$ ($product$).
+
 <!-- include parts/intro.md -->
 Intro body from include.
 

@@ -6,6 +6,8 @@
     <IsPackable>true</IsPackable>
     <PackageId>SdkPackReadmeSample</PackageId>
     <Version>1.0.0</Version>
+    <Product>SdkPackProduct</Product>
+    <Authors>SdkPack Authors</Authors>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <!-- Disable repo Directory.Build readme packing interference when restored in isolation. -->
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>

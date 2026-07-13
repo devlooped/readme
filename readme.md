@@ -20,7 +20,8 @@ When the project is packable and a `readme.md` (or `$(PackageReadmeFile)`) is pr
 
 1. The readme is included in the package automatically (`PackReadme=false` to opt out).
 2. Include directives are resolved before pack (local files, nested includes, `#fragment` sections, HTTP(S) URLs).
-3. The processed file is written under `$(BaseIntermediateOutputPath)` and **that** intermediate file is what is packed.
+3. NuGet-style `$token$` replacements are applied to the expanded content.
+4. The processed file is written under `$(BaseIntermediateOutputPath)` and **that** intermediate file is what is packed.
 
 ### Example
 
@@ -69,6 +70,7 @@ Absolute `http(s)` includes from a **local** file are always allowed (subject to
 | `PackageReadmeFile` | `readme.md` if it exists | Package readme path / in-package filename |
 | `ReadmeIncludeScheme` | `https` | Semicolon-separated URI schemes allowed for remote includes (add `http` only if needed) |
 | `@(ReadmeIncludeDomain)` | _(empty)_ | Hosts allowed for absolute remote includes nested inside remote content |
+| `@(ReadmeReplacementToken)` | Id, Version, Author, Authors, Title, Description, Copyright, Configuration, Product | `$token$` replacements applied after includes |
 
 ```xml
 <PropertyGroup>
@@ -79,6 +81,20 @@ Absolute `http(s)` includes from a **local** file are always allowed (subject to
   <ReadmeIncludeDomain Include="cdn.example.com" />
 </ItemGroup>
 ```
+
+### Replacement tokens
+
+Supports the [official NuGet replacement tokens](https://learn.microsoft.com/en-us/nuget/reference/nuspec#replacement-tokens) (`$id$`, `$version$`, `$author$`, `$title$`, `$description$`, `$copyright$`, `$configuration$`), plus `$authors$` (MSBuild `$(Authors)`) and `$product$` (as in NuGetizer). Replacements run **after** include expansion so tokens inside included files are replaced too.
+
+Extensible via MSBuild items `@(ReadmeReplacementToken)` (separate from NuGetizer's `@(PackageReplacementToken)` to avoid conflicts):
+
+```xml
+<ItemGroup>
+  <ReadmeReplacementToken Include="Company" Value="$(Company)" />
+</ItemGroup>
+```
+
+Use the new token case-insensitively in the readme as `$company$`.
 <!-- #content -->
 ---
 <!-- include https://github.com/devlooped/.github/raw/main/osmf.md -->
