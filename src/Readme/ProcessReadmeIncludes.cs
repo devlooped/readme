@@ -8,8 +8,8 @@ namespace Readme;
 
 /// <summary>
 /// MSBuild task that resolves <c>&lt;!-- include ... --&gt;</c> directives in a package readme,
-/// applies <c>$token$</c> replacements, and writes the processed content to an output path
-/// (typically under BaseIntermediateOutputPath).
+/// applies <c>$token$</c> replacements, optionally expands GitHub relative URLs, and writes the
+/// processed content to an output path (typically under BaseIntermediateOutputPath).
 /// </summary>
 public class ProcessReadmeIncludes : Task
 {
@@ -38,6 +38,25 @@ public class ProcessReadmeIncludes : Task
     /// Maps from <c>@(ReadmeReplacementToken)</c> (metadata <c>Value</c>).
     /// </summary>
     public ITaskItem[]? ReplacementTokens { get; set; }
+
+    /// <summary>
+    /// When true (default), expand relative Markdown links/images to raw.githubusercontent.com
+    /// URLs when <see cref="RepositoryUrl"/> / <see cref="RepositoryCommit"/> allow it.
+    /// Maps from <c>$(ReadmeExpandGitHubUrls)</c>.
+    /// </summary>
+    public bool ExpandGitHubUrls { get; set; } = true;
+
+    /// <summary>
+    /// Repository URL used for GitHub relative-link expansion (e.g. <c>https://github.com/org/repo</c>).
+    /// Maps from <c>$(RepositoryUrl)</c> (or SourceLink private URL when published).
+    /// </summary>
+    public string? RepositoryUrl { get; set; }
+
+    /// <summary>
+    /// Commit SHA (or short SHA) used to pin expanded raw.githubusercontent.com URLs.
+    /// Maps from <c>$(RepositoryCommit)</c> / <c>$(RepositorySha)</c> / <c>$(SourceRevisionId)</c>.
+    /// </summary>
+    public string? RepositoryCommit { get; set; }
 
     public override bool Execute()
     {
@@ -70,6 +89,18 @@ public class ProcessReadmeIncludes : Task
             .Select(i => (i.ItemSpec, i.GetMetadata("Value")))
             ?? Enumerable.Empty<(string, string)>();
         content = TokenReplacer.Replace(content, tokens);
+
+        if (ExpandGitHubUrls)
+        {
+            var expanded = GitHubUrlExpander.Expand(content, RepositoryUrl, RepositoryCommit);
+            if (!ReferenceEquals(expanded, content) && !string.Equals(expanded, content, StringComparison.Ordinal))
+            {
+                Log.LogMessage(MessageImportance.Low,
+                    "Expanded GitHub relative URLs in package readme using {0}@{1}",
+                    RepositoryUrl, RepositoryCommit);
+                content = expanded;
+            }
+        }
 
         var directory = Path.GetDirectoryName(OutputFile);
         if (!string.IsNullOrEmpty(directory))

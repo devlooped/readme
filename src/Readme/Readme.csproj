@@ -4,10 +4,11 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <PackageId>Readme</PackageId>
     <Description>
-      Automatic package readme packing and include-directive resolution at pack time.
+      Automatic package readme packing, include-directive resolution, token replacement,
+      and GitHub relative URL expansion at pack time.
       Works with SDK Pack and NuGetizer: processes includes into BaseIntermediateOutputPath and packs that file.
     </Description>
-    <PackageTags>readme nuget pack include markdown msbuild</PackageTags>
+    <PackageTags>readme nuget pack include markdown msbuild github</PackageTags>
     <DevelopmentDependency>true</DevelopmentDependency>
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <!-- Build package: pack None under relative paths (build/, buildTransitive/). -->
@@ -17,11 +18,25 @@
     <NoWarn>$(NoWarn);NU5128</NoWarn>
     <Nullable>enable</Nullable>
     <LangVersion>Latest</LangVersion>
+    <!-- Always merge Markdig so build/Readme.dll is self-contained (no satellite deps). -->
+    <ILRepack>true</ILRepack>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Build.Tasks.Core" Version="17.11.48" PrivateAssets="all" />
+    <PackageReference Include="Markdig" Version="1.3.2" PrivateAssets="all" />
+    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.1.2" PrivateAssets="all" />
     <PackageReference Include="NuGetizer" Version="1.4.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Merge Markdig + polyfills into the task assembly (same set as NuGetizer). -->
+    <ILRepackInclude Include="Markdig" />
+    <ILRepackInclude Include="System.Buffers" />
+    <ILRepackInclude Include="System.Memory" />
+    <ILRepackInclude Include="System.Numerics.Vectors" />
+    <ILRepackInclude Include="System.Runtime.CompilerServices.Unsafe" />
   </ItemGroup>
 
   <ItemGroup>
@@ -60,5 +75,21 @@
       <None Include="$(MSBuildProjectDirectory)\buildTransitive\Readme.targets" Pack="true" PackagePath="buildTransitive/Readme.targets" PackFolder="buildTransitive" />
     </ItemGroup>
   </Target>
-</Project>
 
+  <!--
+    MSBuild 17 packages ship ref assemblies that are not copy-local, so ILRepack cannot
+    resolve Microsoft.Build.Framework when merging Markdig. Add those ReferencePath entries
+    as resolve-only /lib directories (not ILRepackInclude, so they are not merged).
+  -->
+  <Target Name="ILRepackAddResolveLibs" BeforeTargets="ILRepack" Condition="'$(ILRepack)' == 'true'">
+    <ItemGroup>
+      <ReferenceCopyLocalPaths Include="@(ReferencePath)" Condition="
+        '%(Filename)' == 'Microsoft.Build.Framework' Or
+        '%(Filename)' == 'Microsoft.Build.Utilities.Core' Or
+        '%(Filename)' == 'Microsoft.Build.Tasks.Core' Or
+        '%(Filename)' == 'Microsoft.NET.StringTools'" />
+    </ItemGroup>
+  </Target>
+
+  <Import Project="..\ILRepack.targets" />
+</Project>

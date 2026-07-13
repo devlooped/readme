@@ -6,7 +6,8 @@
 
 1. Auto-packs a project `readme.md` / `$(PackageReadmeFile)` (opt-out: `PackReadme=false`).
 2. Resolves `<!-- include ... -->` directives at pack time (local, nested, `#fragment`, HTTP(S)).
-3. Writes the processed readme under `$(BaseIntermediateOutputPath)` and packs **that** file.
+3. Applies `$token$` replacements and expands GitHub relative URLs (opt-out: `ReadmeExpandGitHubUrls=false`).
+4. Writes the processed readme under `$(BaseIntermediateOutputPath)` and packs **that** file.
 
 Compatible with both SDK Pack and NuGetizer. Does not require NuGetizer.
 
@@ -16,10 +17,12 @@ Compatible with both SDK Pack and NuGetizer. Does not require NuGetizer.
 |------|------|
 | `src/Readme/IncludesResolver.cs` | Pure include-resolution logic (ported from NuGetizer) |
 | `src/Readme/TokenReplacer.cs` | Pure `$token$` replacement (same algorithm as NuGetizer) |
-| `src/Readme/ProcessReadmeIncludes.cs` | Thin MSBuild task wrapping resolver + token replacement |
-| `src/Readme/build/Readme.props` | Defaults: `PackReadme` (include processing is always on) |
+| `src/Readme/GitHubUrlExpander.cs` | Pure relative-link expansion via Markdig (ported from NuGetizer) |
+| `src/Readme/ProcessReadmeIncludes.cs` | Thin MSBuild task wrapping resolver + tokens + GitHub URLs |
+| `src/Readme/build/Readme.props` | Defaults: `PackReadme`, `ReadmeExpandGitHubUrls` |
 | `src/Readme/build/Readme.targets` | Auto-pack item metadata + pre-pack process + NuGetizer `PackageFile` retarget |
 | `src/Readme/buildTransitive/*` | Re-exports `build/` for transitive imports |
+| `src/ILRepack.targets` | Merges Markdig into `build/Readme.dll` |
 | `src/Tests/` | Unit tests on fixtures + SDK Pack / NuGetizer pack scenario tests |
 
 ## Design notes
@@ -30,6 +33,8 @@ Compatible with both SDK Pack and NuGetizer. Does not require NuGetizer.
 - **` ```exclude ` fences**: includes inside fenced code blocks with language `exclude` are left literal (for documenting include syntax).
 - **Fragment resolution**: explicit `<!-- #fragment -->` pairs win (placement controls whether a section title is included); otherwise GitHub heading auto-anchors match and **include the heading line** (e.g. `## Usage` for `#usage`).
 - **Token replacement**: after includes, `$token$` placeholders are replaced via `@(ReadmeReplacementToken)` (official NuGet: Id/Version/Author/Title/Description/Copyright/Configuration; plus Authors and Product; consumer-extensible). Case-insensitive names; last value wins for duplicates. Named separately from NuGetizer's `@(PackageReplacementToken)` to avoid item conflicts.
+- **GitHub relative URLs**: after tokens, relative Markdown links/images are rewritten to `https://raw.githubusercontent.com/{owner}/{repo}/{commit}/…` when `ReadmeExpandGitHubUrls` is true (default), `RepositoryUrl` is a github.com absolute URL, and a commit is available (`RepositoryCommit` → `RepositorySha` → `SourceRevisionId`). Auto-skips otherwise. Opt out with `ReadmeExpandGitHubUrls=false`. Uses Markdig `LinkInline` + `NormalizeRenderer` (same as NuGetizer).
+- **ILRepack Markdig**: Markdig and its polyfill deps are internalized into `build/Readme.dll` so the package ships a single task assembly (no satellite DLLs under `build/`).
 - **Package layout**: development dependency (`DevelopmentDependency=true`); task DLL + props/targets under `build/` (and `buildTransitive/`). Primary output is not under `lib/` (`IncludeBuildOutput=false`).
 - **Self-private asset** (NuGetizer pattern): `build/Readme.targets` does `<PackageReference Update="Readme" PrivateAssets="all" Pack="false" />` so consumers never need to set `PrivateAssets` and pack never emits Readme as a dependency.
 - **Self-pack caveat**: this repo’s `Directory.Build.targets` matches None items with Filename `readme` case-insensitively, which also hits `Readme.props` / `Readme.targets`. `FixBuildPackagePaths` in `Readme.csproj` restores correct `PackagePath` values before NuGetizer packs the package itself.
@@ -37,6 +42,6 @@ Compatible with both SDK Pack and NuGetizer. Does not require NuGetizer.
 
 ## Non-goals (not ported from NuGetizer)
 
-- GitHub relative-link rewriting, license-file include/token processing, analyzer diagnostics for missing readme.
+- License-file include/token processing, analyzer diagnostics for missing readme.
 
 <!-- exclude -->

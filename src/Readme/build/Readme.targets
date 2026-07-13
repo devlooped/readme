@@ -119,12 +119,29 @@
       <ReadmeReplacementToken Include="Product" Value="$(Product)" Condition="'$(Product)' != ''" />
     </ItemGroup>
 
+    <!--
+      Resolve repository identity for GitHub relative URL expansion.
+      Prefer public RepositoryUrl; fall back to SourceLink PrivateRepositoryUrl when publishing.
+      Commit: RepositoryCommit → RepositorySha → SourceRevisionId (any non-empty wins first).
+      Expansion is skipped automatically when url/commit is missing or host is not github.com.
+    -->
+    <PropertyGroup>
+      <_ReadmeRepositoryUrl Condition="'$(_ReadmeRepositoryUrl)' == '' and '$(RepositoryUrl)' != ''">$(RepositoryUrl)</_ReadmeRepositoryUrl>
+      <_ReadmeRepositoryUrl Condition="'$(_ReadmeRepositoryUrl)' == '' and '$(PublishRepositoryUrl)' == 'true' and '$(PrivateRepositoryUrl)' != ''">$(PrivateRepositoryUrl)</_ReadmeRepositoryUrl>
+      <_ReadmeRepositoryCommit Condition="'$(_ReadmeRepositoryCommit)' == '' and '$(RepositoryCommit)' != ''">$(RepositoryCommit)</_ReadmeRepositoryCommit>
+      <_ReadmeRepositoryCommit Condition="'$(_ReadmeRepositoryCommit)' == '' and '$(RepositorySha)' != ''">$(RepositorySha)</_ReadmeRepositoryCommit>
+      <_ReadmeRepositoryCommit Condition="'$(_ReadmeRepositoryCommit)' == '' and '$(SourceRevisionId)' != ''">$(SourceRevisionId)</_ReadmeRepositoryCommit>
+    </PropertyGroup>
+
     <ProcessReadmeIncludes Condition="'$(_ReadmeSourceFile)' != '' and Exists('$(_ReadmeSourceFile)')"
                            SourceFile="$(_ReadmeSourceFile)"
                            OutputFile="$(_ReadmeProcessedFile)"
                            AllowedSchemes="$(ReadmeIncludeScheme)"
                            AllowedDomains="@(ReadmeIncludeDomain)"
-                           ReplacementTokens="@(ReadmeReplacementToken)" />
+                           ReplacementTokens="@(ReadmeReplacementToken)"
+                           ExpandGitHubUrls="$(ReadmeExpandGitHubUrls)"
+                           RepositoryUrl="$(_ReadmeRepositoryUrl)"
+                           RepositoryCommit="$(_ReadmeRepositoryCommit)" />
 
     <!-- Stop packing the unprocessed source; pack the intermediate processed file instead. -->
     <ItemGroup Condition="Exists('$(_ReadmeProcessedFile)')">
