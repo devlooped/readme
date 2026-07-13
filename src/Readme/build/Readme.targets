@@ -129,14 +129,18 @@
   </Target>
 
   <!--
-    NuGetizer packs via @(PackageFile) after GetPackageContents; retarget those to the processed intermediate.
-    Safe no-op when NuGetizer is not present (PackageFile empty / target never produced items).
+    NuGetizer: InferPackageContents is a DependsOn of GetPackageContents, so it runs *before*
+    any BeforeTargets and packages the unprocessed source. Process includes, then retarget
+    @(PackageFile) still BeforeTargets so AssignPackagePath (GetPackageContents body) snapshots
+    the intermediate into @_PackageContent. AfterTargets would be too late for Pack.
+    Safe no-op when NuGetizer is not present (PackageFile empty).
   -->
   <Target Name="RetargetNuGetizerProcessedReadme"
-          AfterTargets="GetPackageContents"
-          Condition="'$(IsPackable)' == 'true' and '$(PackReadme)' == 'true' and '$(_ReadmeProcessedFile)' != '' and Exists('$(_ReadmeProcessedFile)')">
-
-    <ItemGroup>
+          BeforeTargets="GetPackageContents"
+          DependsOnTargets="ProcessPackageReadmeIncludes"
+          Condition="'$(IsPackable)' == 'true' and '$(PackReadme)' == 'true'">
+    <!-- Condition on items (not target): _ReadmeProcessedFile is set by ProcessPackageReadmeIncludes. -->
+    <ItemGroup Condition="'$(_ReadmeProcessedFile)' != '' and Exists('$(_ReadmeProcessedFile)')">
       <_ReadmePackageFile Include="@(PackageFile)"
                           Condition="'%(PackageFile.PackagePath)' == '$(_ReadmePackagePath)' or '%(PackageFile.PackagePath)' == '$(PackageReadmeFile)'" />
       <PackageFile Remove="@(_ReadmePackageFile)" />
