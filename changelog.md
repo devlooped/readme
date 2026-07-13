@@ -1,10 +1,13 @@
 # Changelog
 
-## Unreleased
+## [v1.1.0](https://github.com/devlooped/readme/tree/v1.1.0) (2026-07-13)
+
+[Full Changelog](https://github.com/devlooped/readme/compare/v1.0.2...v1.1.0)
 
 :sparkles: Implemented enhancements:
 
-- Add `$token$` replacement for package readme via `@(ReadmeReplacementToken)`
+- Expand GitHub relative URLs in package readme at pack time [\#18](https://github.com/devlooped/readme/pull/18) (@kzu)
+- Add $token$ replacement for package readme via @\(ReadmeReplacementToken\) [\#17](https://github.com/devlooped/readme/pull/17) (@kzu)
 
 ## [v1.0.2](https://github.com/devlooped/readme/tree/v1.0.2) (2026-07-13)
 
