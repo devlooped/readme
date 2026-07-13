@@ -1,5 +1,14 @@
 # Changelog
 
+## [v1.0.2](https://github.com/devlooped/readme/tree/v1.0.2) (2026-07-13)
+
+[Full Changelog](https://github.com/devlooped/readme/compare/v1.0.1...v1.0.2)
+
+:sparkles: Implemented enhancements:
+
+- Improve NuGetizer compatibility [\#16](https://github.com/devlooped/readme/pull/16) (@kzu)
+- Make Readme a self-private development dependency [\#15](https://github.com/devlooped/readme/pull/15) (@kzu)
+
 ## [v1.0.1](https://github.com/devlooped/readme/tree/v1.0.1) (2026-07-10)
 
 [Full Changelog](https://github.com/devlooped/readme/compare/v1.0.0...v1.0.1)
