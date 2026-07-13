@@ -108,6 +108,12 @@ public class PackScenarioTests
         Assert.True(
             packageReadme.Contains("Shared include for NuGetizer pack scenario."),
             "Package readme should contain expanded include body");
+
+        // Same as NuGetizer: PackageReference Update PrivateAssets=all Pack=false must exclude
+        // Readme from packed dependencies even when the project omits PrivateAssets.
+        var nuspec = ReadPackageEntry(nupkg, "NuGetizerPackReadmeSample.nuspec");
+        File.WriteAllText(Path.Combine(evidenceDir, "package.nuspec"), nuspec);
+        Assert.DoesNotContain("<dependency id=\"Readme\"", nuspec, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -192,6 +198,12 @@ public class PackScenarioTests
             $"Unexpected package file name: {fileName}");
         var version = fileName.Substring("Readme.".Length);
         File.WriteAllText(Path.Combine(evidenceDir, "readme-package-version.txt"), version);
+
+        // Package itself must be marked as a development dependency in the nuspec.
+        var readmeNuspec = ReadPackageEntry(nupkg!, "Readme.nuspec");
+        File.WriteAllText(Path.Combine(evidenceDir, "readme-package.nuspec"), readmeNuspec);
+        Assert.Contains("<developmentDependency>true</developmentDependency>", readmeNuspec, StringComparison.OrdinalIgnoreCase);
+
         return new PackedReadme(feed, version);
     }
 
@@ -230,9 +242,10 @@ public class PackScenarioTests
 
         if (!csproj.Contains("PackageReference Include=\"Readme\""))
         {
+            // Omit PrivateAssets on purpose: build/Readme.targets must set it automatically.
             var packageRef = $"""
                   <ItemGroup>
-                    <PackageReference Include="Readme" Version="{packed.Version}" PrivateAssets="all" />
+                    <PackageReference Include="Readme" Version="{packed.Version}" />
                   </ItemGroup>
                 </Project>
                 """;
