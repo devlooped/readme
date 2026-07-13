@@ -21,7 +21,8 @@ When the project is packable and a `readme.md` (or `$(PackageReadmeFile)`) is pr
 1. The readme is included in the package automatically (`PackReadme=false` to opt out).
 2. Include directives are resolved before pack (local files, nested includes, `#fragment` sections, HTTP(S) URLs).
 3. NuGet-style `$token$` replacements are applied to the expanded content.
-4. The processed file is written under `$(BaseIntermediateOutputPath)` and **that** intermediate file is what is packed.
+4. Relative Markdown links/images are expanded to `raw.githubusercontent.com` URLs when the project has a GitHub `RepositoryUrl` and commit (opt out: `ReadmeExpandGitHubUrls=false`; auto-skipped when url/commit is missing or not github.com).
+5. The processed file is written under `$(BaseIntermediateOutputPath)` and **that** intermediate file is what is packed.
 
 ### Example
 
@@ -69,6 +70,7 @@ Absolute `http(s)` includes from a **local** file are always allowed (subject to
 | `PackReadme` | `true` | Auto-pack the package readme when present |
 | `PackageReadmeFile` | `readme.md` if it exists | Package readme path / in-package filename |
 | `ReadmeIncludeScheme` | `https` | Semicolon-separated URI schemes allowed for remote includes (add `http` only if needed) |
+| `ReadmeExpandGitHubUrls` | `true` | Expand relative links/images to raw.githubusercontent.com when `RepositoryUrl` is github.com and a commit is available |
 | `@(ReadmeIncludeDomain)` | _(empty)_ | Hosts allowed for absolute remote includes nested inside remote content |
 | `@(ReadmeReplacementToken)` | Id, Version, Author, Authors, Title, Description, Copyright, Configuration, Product | `$token$` replacements applied after includes |
 
@@ -95,6 +97,29 @@ Extensible via MSBuild items `@(ReadmeReplacementToken)` (separate from NuGetize
 ```
 
 Use the new token case-insensitively in the readme as `$company$`.
+
+### GitHub relative URLs
+
+When packing a package whose repository is on GitHub, relative Markdown links and images in the readme are rewritten so nuget.org (and other consumers) can resolve them:
+
+```md
+See [license](license.txt) and ![logo](img/logo.png).
+```
+
+becomes (pinned to the packed commit):
+
+```md
+See [license](https://raw.githubusercontent.com/org/repo/<commit>/license.txt) and ![logo](https://raw.githubusercontent.com/org/repo/<commit>/img/logo.png).
+```
+
+Requires a github.com `RepositoryUrl` (or SourceLink `PrivateRepositoryUrl` with `PublishRepositoryUrl=true`) and a commit from `RepositoryCommit`, `RepositorySha`, or `SourceRevisionId`. Absolute URLs are left unchanged. Nested clickable images (`[![alt](img.png)](doc.txt)`) expand both the image and the outer link.
+
+```xml
+<PropertyGroup>
+  <!-- Optional: leave relative URLs as-is -->
+  <ReadmeExpandGitHubUrls>false</ReadmeExpandGitHubUrls>
+</PropertyGroup>
+```
 <!-- #content -->
 ---
 <!-- include https://github.com/devlooped/.github/raw/main/osmf.md -->
