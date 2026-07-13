@@ -7,8 +7,9 @@ using Task = Microsoft.Build.Utilities.Task;
 namespace Readme;
 
 /// <summary>
-/// MSBuild task that resolves <c>&lt;!-- include ... --&gt;</c> directives in a package readme
-/// and writes the processed content to an output path (typically under BaseIntermediateOutputPath).
+/// MSBuild task that resolves <c>&lt;!-- include ... --&gt;</c> directives in a package readme,
+/// applies <c>$token$</c> replacements, and writes the processed content to an output path
+/// (typically under BaseIntermediateOutputPath).
 /// </summary>
 public class ProcessReadmeIncludes : Task
 {
@@ -31,6 +32,12 @@ public class ProcessReadmeIncludes : Task
     /// Maps from <c>@(ReadmeIncludeDomain)</c>. Local-file → remote hops ignore this list.
     /// </summary>
     public ITaskItem[]? AllowedDomains { get; set; }
+
+    /// <summary>
+    /// Token name/value pairs for <c>$token$</c> replacement after include expansion.
+    /// Maps from <c>@(ReadmeReplacementToken)</c> (metadata <c>Value</c>).
+    /// </summary>
+    public ITaskItem[]? ReplacementTokens { get; set; }
 
     public override bool Execute()
     {
@@ -58,6 +65,11 @@ public class ProcessReadmeIncludes : Task
         };
 
         var content = IncludesResolver.Process(SourceFile, message => Log.LogWarning(message), options);
+
+        var tokens = ReplacementTokens?
+            .Select(i => (i.ItemSpec, i.GetMetadata("Value")))
+            ?? Enumerable.Empty<(string, string)>();
+        content = TokenReplacer.Replace(content, tokens);
 
         var directory = Path.GetDirectoryName(OutputFile);
         if (!string.IsNullOrEmpty(directory))

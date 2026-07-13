@@ -54,6 +54,11 @@ public class PackScenarioTests
         Assert.Contains("Fragment-only content.", intermediateContent);
         Assert.DoesNotContain("Should not appear.", intermediateContent);
         Assert.DoesNotContain("<!-- include parts/intro.md -->\n\n<!-- include", intermediateContent); // expanded, not bare-only
+        // Token replacement after includes
+        Assert.Contains("Package **SdkPackReadmeSample** v1.0.0 (SdkPackProduct).", intermediateContent);
+        Assert.DoesNotContain("$id$", intermediateContent);
+        Assert.DoesNotContain("$version$", intermediateContent);
+        Assert.DoesNotContain("$product$", intermediateContent);
 
         // nupkg contains processed readme
         var nupkg = Directory.GetFiles(Path.Combine(work, "out"), "*.nupkg").Single();
@@ -63,6 +68,7 @@ public class PackScenarioTests
         Assert.Contains("Intro body from include.", packageReadme);
         Assert.Contains("Fragment-only content.", packageReadme);
         Assert.DoesNotContain("Should not appear.", packageReadme);
+        Assert.Contains("Package **SdkPackReadmeSample** v1.0.0 (SdkPackProduct).", packageReadme);
 
         // PackageReadmeFile metadata present in nuspec
         var nuspec = ReadPackageEntry(nupkg, "SdkPackReadmeSample.nuspec");

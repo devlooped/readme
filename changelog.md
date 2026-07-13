@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+:sparkles: Implemented enhancements:
+
+- Add `$token$` replacement for package readme via `@(ReadmeReplacementToken)`
+
 ## [v1.0.2](https://github.com/devlooped/readme/tree/v1.0.2) (2026-07-13)
 
 [Full Changelog](https://github.com/devlooped/readme/compare/v1.0.1...v1.0.2)
