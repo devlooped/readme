@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.1.2](https://github.com/devlooped/readme/tree/v1.1.2) (2026-07-14)
+
+[Full Changelog](https://github.com/devlooped/readme/compare/v1.1.1...v1.1.2)
+
+:twisted_rightwards_arrows: Merged:
+
+- Switch self-pack to SDK Pack and fix package readme double-include [\#21](https://github.com/devlooped/readme/pull/21) (@kzu)
+
 ## [v1.1.1](https://github.com/devlooped/readme/tree/v1.1.1) (2026-07-14)
 
 [Full Changelog](https://github.com/devlooped/readme/compare/v1.1.0...v1.1.1)
