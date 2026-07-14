@@ -329,6 +329,132 @@ public class IncludesResolverTests
     }
 
     [Fact]
+    public void CommentAnchor_IgnoresInlineMentionsInProseAndCode()
+    {
+        // Regression: IndexOf("<!-- #content -->") used to stop at the first *inline* mention
+        // (table cells / `code` spans that document the syntax), truncating the real section.
+        using var dir = new TempDir();
+        var root = dir.Write("root.md", "<!-- include doc.md#content -->\n");
+        dir.Write("doc.md",
+            "<!-- #content -->\n" +
+            "intro\n" +
+            "\n" +
+            "Use matching `<!-- #content -->` … `<!-- #content -->` anchors.\n" +
+            "\n" +
+            "| Include | Notes |\n" +
+            "|---------|-------|\n" +
+            "| `#content` | between `<!-- #content -->` markers |\n" +
+            "\n" +
+            "### Include syntax\n" +
+            "after-table-body\n" +
+            "<!-- #content -->\n" +
+            "\n" +
+            "outside-should-not-appear\n");
+
+        var content = IncludesResolver.Process(root);
+        var normalized = content.Replace("\r\n", "\n");
+
+        Assert.Contains("intro", normalized);
+        Assert.Contains("### Include syntax", normalized);
+        Assert.Contains("after-table-body", normalized);
+        Assert.DoesNotContain("outside-should-not-appear", normalized);
+        // Inline prose mention preserved inside the slice (not treated as end anchor).
+        Assert.Contains("Use matching `<!-- #content -->`", normalized);
+    }
+
+    [Fact]
+    public void AlreadyExpandedInclude_DoesNotSpanAcrossSecondOpenOfSamePath()
+    {
+        // Regression: non-greedy regex from a bare <!-- include path --> would match through to the
+        // close of a *later* already-expanded instance of the same path, eating #fragment markers.
+        using var dir = new TempDir();
+        var root = dir.Write("root.md",
+            "docs:\n" +
+            "```exclude\n" +
+            "<!-- include shared.md -->\n" +
+            "```\n" +
+            "\n" +
+            "<!-- include shared.md -->\n" +
+            "OLD-BODY\n" +
+            "<!-- shared.md -->\n");
+        dir.Write("shared.md", "NEW-BODY\n");
+
+        var content = IncludesResolver.Process(root);
+        var normalized = content.Replace("\r\n", "\n");
+
+        // Exclude fence keeps the bare example.
+        var fenceStart = normalized.IndexOf("```exclude\n", StringComparison.Ordinal);
+        Assert.True(fenceStart >= 0);
+        var fenceEnd = normalized.IndexOf("\n```", fenceStart + 1, StringComparison.Ordinal);
+        var fenceBody = normalized.Substring(fenceStart, fenceEnd - fenceStart);
+        Assert.Contains("<!-- include shared.md -->", fenceBody);
+        Assert.DoesNotContain("NEW-BODY", fenceBody);
+        Assert.DoesNotContain("OLD-BODY", fenceBody);
+
+        // Outside: re-expanded once (not doubled, not left as OLD-BODY only).
+        Assert.Contains("NEW-BODY", normalized);
+        Assert.DoesNotContain("OLD-BODY", normalized);
+        Assert.Equal(1, CountOccurrences(normalized, "NEW-BODY"));
+    }
+
+    [Fact]
+    public void PackageReadmePattern_ContentFragmentPlusOuterIncludes_NoDoubleOsMF()
+    {
+        // Mirrors this repo: project readme includes repo.md#content, then remote-style local
+        // osmf/footer; repo.md documents include syntax with ```exclude and has osmf outside #content.
+        using var dir = new TempDir();
+        var project = dir.Write("project.md",
+            "<!-- include repo.md#content -->\n" +
+            "\n" +
+            "<!-- include osmf.md -->\n" +
+            "\n" +
+            "<!-- include footer.md -->\n");
+        dir.Write("repo.md",
+            "<!-- #content -->\n" +
+            "docs-body\n" +
+            "\n" +
+            "### Example\n" +
+            "```exclude\n" +
+            "<!-- include repo.md#content -->\n" +
+            "<!-- include osmf.md -->\n" +
+            "<!-- include footer.md -->\n" +
+            "```\n" +
+            "\n" +
+            "Anchors are `<!-- #content -->` pairs.\n" +
+            "### Include syntax\n" +
+            "more-docs\n" +
+            "<!-- #content -->\n" +
+            "\n" +
+            "<!-- include osmf.md -->\n" +
+            "REPO-OSMF\n" +
+            "<!-- osmf.md -->\n" +
+            "\n" +
+            "<!-- include footer.md -->\n" +
+            "REPO-FOOTER\n" +
+            "<!-- footer.md -->\n");
+        dir.Write("osmf.md", "OSMF-ONCE\n");
+        dir.Write("footer.md", "FOOTER-ONCE\n");
+
+        var content = IncludesResolver.Process(project);
+        var normalized = content.Replace("\r\n", "\n");
+
+        Assert.Contains("docs-body", normalized);
+        Assert.Contains("### Include syntax", normalized);
+        Assert.Contains("more-docs", normalized);
+        Assert.Contains("```exclude", normalized);
+        // Example includes stay literal.
+        Assert.Contains("<!-- include osmf.md -->", normalized.Substring(
+            normalized.IndexOf("```exclude", StringComparison.Ordinal),
+            120));
+
+        // Project-level includes expand exactly once; repo-level copies outside #content stay out.
+        Assert.Equal(1, CountOccurrences(normalized, "OSMF-ONCE"));
+        Assert.Equal(1, CountOccurrences(normalized, "FOOTER-ONCE"));
+        Assert.DoesNotContain("REPO-OSMF", normalized);
+        Assert.DoesNotContain("REPO-FOOTER", normalized);
+    }
+
+    [Fact]
     public void MissingFragment_NoCommentOrHeading_WarnsAndLeavesMarker()
     {
         using var dir = new TempDir();

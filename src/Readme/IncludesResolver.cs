@@ -5,6 +5,8 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
+using Markdig;
+using Markdig.Syntax;
 
 namespace Readme;
 
@@ -216,16 +218,12 @@ public class IncludesResolver
 
             if (fragment != null)
             {
-                var anchor = $"<!-- {fragment} -->";
-                var start = includedContent.IndexOf(anchor, StringComparison.Ordinal);
-                if (start != -1)
+                // Explicit full-line <!-- #fragment --> HtmlBlocks win over heading auto-anchors.
+                // Inline mentions (e.g. inside `code` or table cells) are ignored so docs can
+                // describe the syntax without truncating the slice.
+                if (TryExtractCommentAnchorSection(includedContent, fragment, out var anchorSection))
                 {
-                    // Explicit comment anchors win over heading auto-anchors and include the
-                    // marker lines themselves — placement controls whether a section title is in range.
-                    includedContent = includedContent.Substring(start);
-                    var end = includedContent.IndexOf(anchor, anchor.Length, StringComparison.Ordinal);
-                    if (end != -1)
-                        includedContent = includedContent.Substring(0, end + anchor.Length);
+                    includedContent = anchorSection;
                 }
                 else if (TryExtractHeadingSection(includedContent, fragment.Substring(1), out var headingSection))
                 {
@@ -241,14 +239,11 @@ public class IncludesResolver
 
             var replacement = $"<!-- include {includedPath}{fragment} -->{Environment.NewLine}{includedContent}{Environment.NewLine}<!-- {includedPath}{fragment} -->";
 
-            // If this marker already wraps expanded content (idempotent re-process), replace the whole span.
-            var existingRegex = new Regex(
-                @$"<!--\s?include {Regex.Escape(includedPath)}{Regex.Escape(fragment ?? "")}\s?-->[\s\S]*?<!-- {Regex.Escape(includedPath)}{Regex.Escape(fragment ?? "")} -->",
-                RegexOptions.None);
-            var existingMatch = existingRegex.Match(content!, match.Index);
-            var length = existingMatch.Success && existingMatch.Index == match.Index
-                ? existingMatch.Length
-                : match.Length;
+            // Idempotent re-process: if this open marker already wraps expanded content through a
+            // matching close, replace the whole span. Do not span across a *second* open of the
+            // same path (bare docs example + real expanded include later in the file).
+            var length = GetIncludeReplacementLength(
+                content!, match.Index, match.Length, includedPath, fragment);
 
             expansions.Add((match.Index, length, replacement));
         }
@@ -638,6 +633,8 @@ public class IncludesResolver
     /// <summary>
     /// Character ranges of fenced code blocks whose info-string language is <c>exclude</c>
     /// (<c>```exclude</c> / <c>~~~exclude</c>). Includes inside these ranges are not resolved.
+    /// Uses Markdig's CommonMark fence parser so edge cases (indent, fence length, nested structure)
+    /// match real Markdown rather than a hand-rolled line scanner.
     /// </summary>
     static List<(int Start, int End)> FindExcludeCodeBlockRanges(string content)
     {
@@ -645,70 +642,120 @@ public class IncludesResolver
         if (string.IsNullOrEmpty(content))
             return ranges;
 
-        // Normalize line endings for scanning; map back via original indices by walking content.
-        var i = 0;
-        char? openFenceChar = null;
-        var openFenceLength = 0;
-        var openStart = 0;
-        var inExcludeFence = false;
-
-        while (i < content.Length)
+        var document = Markdown.Parse(content);
+        foreach (var block in document.Descendants<FencedCodeBlock>())
         {
-            var lineStart = i;
-            while (i < content.Length && content[i] != '\n' && content[i] != '\r')
-                i++;
-
-            var lineEnd = i; // exclusive, without newline
-            // Consume newline (\n or \r\n or \r)
-            if (i < content.Length && content[i] == '\r')
-            {
-                i++;
-                if (i < content.Length && content[i] == '\n')
-                    i++;
-            }
-            else if (i < content.Length && content[i] == '\n')
-            {
-                i++;
-            }
-
-            var line = content.Substring(lineStart, lineEnd - lineStart);
-
-            if (!TryParseFenceLine(line, out var fenceChar, out var fenceLength, out var infoString))
+            if (!IsExcludeFenceLanguage(block.Info))
                 continue;
 
-            if (!inExcludeFence)
-            {
-                // Opening fence: language is first token of info string.
-                if (IsExcludeFenceLanguage(infoString))
-                {
-                    inExcludeFence = true;
-                    openFenceChar = fenceChar;
-                    openFenceLength = fenceLength;
-                    openStart = lineStart;
-                }
-
+            // Markdig SourceSpan is inclusive; convert to half-open [Start, End).
+            var start = block.Span.Start;
+            var endExclusive = block.Span.End + 1;
+            if (start < 0 || endExclusive <= start)
                 continue;
-            }
 
-            // Closing fence: same character, at least as long, empty info string.
-            if (fenceChar == openFenceChar &&
-                fenceLength >= openFenceLength &&
-                string.IsNullOrEmpty(infoString))
-            {
-                // Inclusive end: last char of this line (before newline), or EOF.
-                var rangeEnd = lineEnd > lineStart ? lineEnd : lineStart;
-                ranges.Add((openStart, rangeEnd));
-                inExcludeFence = false;
-                openFenceChar = null;
-                openFenceLength = 0;
-            }
+            if (endExclusive > content.Length)
+                endExclusive = content.Length;
+
+            ranges.Add((start, endExclusive));
         }
 
-        // Unclosed exclude fence: rest of document is excluded (CommonMark-style).
-        if (inExcludeFence)
-            ranges.Add((openStart, content.Length));
-
         return ranges;
+    }
+
+    /// <summary>
+    /// Extracts the section between the first two full-line <c>&lt;!-- #fragment --&gt;</c> markers
+    /// (Markdig <see cref="HtmlBlock"/>s). Inline occurrences inside paragraphs, tables, or code
+    /// spans are not HtmlBlocks and are ignored — so documentation can mention the syntax safely.
+    /// When only an opening marker exists, returns from that marker through EOF (same as before).
+    /// </summary>
+    static bool TryExtractCommentAnchorSection(string content, string fragment, out string section)
+    {
+        section = "";
+        if (string.IsNullOrEmpty(content) || string.IsNullOrEmpty(fragment))
+            return false;
+
+        // fragment is "#name" (leading hash from the include path).
+        var anchor = $"<!-- {fragment} -->";
+        var document = Markdown.Parse(content);
+        var anchors = new List<HtmlBlock>();
+        foreach (var block in document.Descendants<HtmlBlock>())
+        {
+            if (IsExactHtmlCommentAnchor(content, block, anchor))
+                anchors.Add(block);
+        }
+
+        if (anchors.Count == 0)
+            return false;
+
+        var start = anchors[0].Span.Start;
+        if (start < 0 || start >= content.Length)
+            return false;
+
+        if (anchors.Count >= 2)
+        {
+            // Inclusive Span.End → exclusive slice end; include the closing marker line.
+            var endExclusive = anchors[1].Span.End + 1;
+            if (endExclusive > content.Length)
+                endExclusive = content.Length;
+            if (endExclusive < start)
+                return false;
+
+            section = content.Substring(start, endExclusive - start);
+            return true;
+        }
+
+        // Single opening marker: through EOF (caller may still use heading fallback when none).
+        section = content.Substring(start);
+        return true;
+    }
+
+    static bool IsExactHtmlCommentAnchor(string content, HtmlBlock block, string anchor)
+    {
+        var start = block.Span.Start;
+        var endExclusive = block.Span.End + 1;
+        if (start < 0 || endExclusive <= start || start >= content.Length)
+            return false;
+        if (endExclusive > content.Length)
+            endExclusive = content.Length;
+
+        var text = content.Substring(start, endExclusive - start).Trim();
+        // HtmlBlock span may include a trailing newline; Trim handles it.
+        return string.Equals(text, anchor, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Length of the span to replace for an include match. When the open marker is already followed
+    /// by expanded body and a matching close <c>&lt;!-- path --&gt;</c> with no second open of the
+    /// same path in between, returns the full open…close length (idempotent re-process). Otherwise
+    /// returns just the open marker length.
+    /// </summary>
+    static int GetIncludeReplacementLength(
+        string content,
+        int matchIndex,
+        int matchLength,
+        string includedPath,
+        string? fragment)
+    {
+        var pathWithFragment = includedPath + (fragment ?? "");
+        var closeMarker = $"<!-- {pathWithFragment} -->";
+        var searchFrom = matchIndex + matchLength;
+        if (searchFrom > content.Length)
+            return matchLength;
+
+        var closeIdx = content.IndexOf(closeMarker, searchFrom, StringComparison.Ordinal);
+        if (closeIdx < 0)
+            return matchLength;
+
+        // Another bare/open include of the same path before this close belongs to a different instance.
+        var reopenPattern = $@"<!--\s?include\s{Regex.Escape(pathWithFragment)}\s?-->";
+        var reopen = Regex.Match(
+            content.Substring(searchFrom, closeIdx - searchFrom),
+            reopenPattern);
+        if (reopen.Success)
+            return matchLength;
+
+        return (closeIdx + closeMarker.Length) - matchIndex;
     }
 
     static bool IsExcludeFenceLanguage(string? infoString)
@@ -716,7 +763,7 @@ public class IncludesResolver
         if (string.IsNullOrWhiteSpace(infoString))
             return false;
 
-        // First token of the info string is the language tag.
+        // Markdig puts the language in Info (first info-string token); tolerate extra tokens.
         var token = infoString!.Trim();
         var space = token.IndexOfAny(new[] { ' ', '\t' });
         if (space >= 0)
@@ -729,7 +776,7 @@ public class IncludesResolver
     {
         foreach (var (start, end) in ranges)
         {
-            // [Start, End) half-open; End is first char after the range body/fence line.
+            // [Start, End) half-open.
             if (index >= start && index < end)
                 return true;
         }
@@ -739,6 +786,7 @@ public class IncludesResolver
 
     /// <summary>
     /// Parses a CommonMark-style fence line: 0–3 spaces, 3+ <c>`</c> or <c>~</c>, optional info string.
+    /// Used when scanning for headings (skip fenced regions) without a full Markdig re-parse per line.
     /// </summary>
     static bool TryParseFenceLine(string line, out char fenceChar, out int fenceLength, out string? infoString)
     {
