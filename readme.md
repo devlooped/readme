@@ -29,12 +29,14 @@ When the project is packable and a `readme.md` (or `$(PackageReadmeFile)`) is pr
 This package's own project-level `readme.md` is essentially three includes:
 
 ```exclude
-<!-- include ../../readme.md#content -->
+<！-- include ../../readme.md#content -->
 
-<!-- include https://github.com/devlooped/.github/raw/main/osmf.md -->
+<！-- include https://github.com/devlooped/.github/raw/main/osmf.md -->
 
-<!-- include https://github.com/devlooped/sponsors/raw/main/footer.md -->
+<！-- include https://github.com/devlooped/sponsors/raw/main/footer.md -->
 ```
+
+(written as HTML comments in your actual readme, using '!' rather than '！` used above for rendering purposes)
 
 | Include | What it does |
 |---------|----------------|
