@@ -63,8 +63,14 @@
     </ItemGroup>
   </Target>
 
+  <!--
+    Do not DependsOn Build: this target is invoked from _WalkEachTargetPerFramework during
+    pack, and GeneratePackageOnBuild/PackOnBuild already enter pack from Build — DependsOn
+    Build here creates a cycle (MSB4006).
+    Pack always runs after Build (dotnet pack / GeneratePackageOnBuild), so outputs exist.
+  -->
   <Target Name="AddReadmePackageAssets"
-          DependsOnTargets="Build;CopyTaskAssemblyToBuild;ProcessPackageReadmeIncludes">
+          DependsOnTargets="CopyTaskAssemblyToBuild;ProcessPackageReadmeIncludes">
     <ItemGroup>
       <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)\build\Readme.props" PackagePath="build/Readme.props" />
       <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)\build\Readme.targets" PackagePath="build/Readme.targets" />
@@ -113,7 +119,8 @@
     shadow for the node lifetime — further copies fail. ContinueOnError allows re-entry
     when this target is a DependsOn of multiple pack targets in the same node.
   -->
-  <Target Name="PrepareSelfHostReadmeTask" DependsOnTargets="Build">
+  <!-- No DependsOn Build: ProcessPackageReadmeIncludes runs during pack; Build→Pack→…→Build cycles. -->
+  <Target Name="PrepareSelfHostReadmeTask">
     <MakeDir Directories="$(MSBuildProjectDirectory)\obj\Readme.Task" />
     <Copy SourceFiles="$(TargetPath)"
           DestinationFiles="$(_ReadmeTaskAssembly)"
