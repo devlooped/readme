@@ -60,12 +60,12 @@ public class IncludesResolverTests
     }
 
     [Fact]
-    public void ProcessReadmeIncludesTask_WritesProcessedFile()
+    public void ProcessPackageReadmeTask_WritesProcessedFile()
     {
         var output = Path.Combine(Path.GetTempPath(), "readme-tests", Guid.NewGuid().ToString("N"), "readme.md");
         try
         {
-            var task = new ProcessReadmeIncludes
+            var task = new ProcessPackageReadme
             {
                 SourceFile = ContentPath("readme.md"),
                 OutputFile = output,
@@ -936,7 +936,7 @@ public class IncludesResolverTests
     }
 
     [Fact]
-    public void ProcessReadmeIncludesTask_AcceptsSchemeAndDomainProperties()
+    public void ProcessPackageReadmeTask_AcceptsSchemeAndDomainProperties()
     {
         // Verify task property plumbing: schemes/domains flow into Process without error.
         using var dir = new TempDir();
@@ -944,7 +944,7 @@ public class IncludesResolverTests
         dir.Write("part.md", "PART\n");
         var output = Path.Combine(dir.Path, "out.md");
 
-        var task = new ProcessReadmeIncludes
+        var task = new ProcessPackageReadme
         {
             SourceFile = localOnly,
             OutputFile = output,

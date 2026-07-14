@@ -8,7 +8,7 @@
     $(TargetPath) or build/Readme.dll blocks Compile/Copy (MSB3027). So we:
       1. Copy the built DLL to a fixed shadow under obj/Readme.Task/ (Build never writes there).
       2. Register UsingTask on that shadow *before* importing build/Readme.targets (first wins).
-      3. Hook Prepare via ProcessPackageReadmeIncludesDependsOn (extension point in shipped targets).
+      3. Hook Prepare via ProcessPackageReadmeDependsOn (extension point in shipped targets).
       4. ContinueOnError on shadow Copy so re-entry after the node already locked the file is OK.
   -->
   <PropertyGroup>
@@ -70,7 +70,7 @@
     Pack always runs after Build (dotnet pack / GeneratePackageOnBuild), so outputs exist.
   -->
   <Target Name="AddReadmePackageAssets"
-          DependsOnTargets="CopyTaskAssemblyToBuild;ProcessPackageReadmeIncludes">
+          DependsOnTargets="CopyTaskAssemblyToBuild;ProcessPackageReadme">
     <ItemGroup>
       <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)\build\Readme.props" PackagePath="build/Readme.props" />
       <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)\build\Readme.targets" PackagePath="build/Readme.targets" />
@@ -83,7 +83,7 @@
       <TfmSpecificPackageFile Include="$(MSBuildThisFileDirectory)..\icon.png" PackagePath="icon.png"
                               Condition="Exists('$(MSBuildThisFileDirectory)..\icon.png')" />
       <!--
-        Do not pack the intermediate readme here — ProcessPackageReadmeIncludes already
+        Do not pack the intermediate readme here — ProcessPackageReadme already
         adds it as None with PackagePath=readme.md. A second entry causes NU5118.
       -->
     </ItemGroup>
@@ -108,18 +108,18 @@
       Never point at $(TargetPath) or build/Readme.dll: the node locks the loaded file forever.
     -->
     <_ReadmeTaskAssembly>$(MSBuildProjectDirectory)\obj\Readme.Task\Readme.dll</_ReadmeTaskAssembly>
-    <ProcessPackageReadmeIncludesDependsOn>PrepareSelfHostReadmeTask;$(ProcessPackageReadmeIncludesDependsOn)</ProcessPackageReadmeIncludesDependsOn>
+    <ProcessPackageReadmeDependsOn>PrepareSelfHostReadmeTask;$(ProcessPackageReadmeDependsOn)</ProcessPackageReadmeDependsOn>
   </PropertyGroup>
 
   <!-- First UsingTask wins over build/Readme.targets. -->
-  <UsingTask TaskName="Readme.ProcessReadmeIncludes" AssemblyFile="$(_ReadmeTaskAssembly)" />
+  <UsingTask TaskName="Readme.ProcessPackageReadme" AssemblyFile="$(_ReadmeTaskAssembly)" />
 
   <!--
-    Seed the shadow once. After ProcessReadmeIncludes runs, MSBuild holds a lock on the
+    Seed the shadow once. After ProcessPackageReadme runs, MSBuild holds a lock on the
     shadow for the node lifetime — further copies fail. ContinueOnError allows re-entry
     when this target is a DependsOn of multiple pack targets in the same node.
   -->
-  <!-- No DependsOn Build: ProcessPackageReadmeIncludes runs during pack; Build→Pack→…→Build cycles. -->
+  <!-- No DependsOn Build: ProcessPackageReadme runs during pack; Build→Pack→…→Build cycles. -->
   <Target Name="PrepareSelfHostReadmeTask">
     <MakeDir Directories="$(MSBuildProjectDirectory)\obj\Readme.Task" />
     <Copy SourceFiles="$(TargetPath)"

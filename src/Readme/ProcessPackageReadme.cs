@@ -11,8 +11,9 @@ namespace Readme;
 /// MSBuild task that resolves <c>&lt;!-- include ... --&gt;</c> directives in a package readme,
 /// applies <c>$token$</c> replacements, optionally expands GitHub relative URLs, and writes the
 /// processed content to an output path (typically under BaseIntermediateOutputPath).
+/// Does not warn on unknown <c>$token$</c> placeholders (readme content may document that syntax).
 /// </summary>
-public class ProcessReadmeIncludes : Task
+public class ProcessPackageReadme : Task
 {
     /// <summary>Source readme file path (project readme before include expansion).</summary>
     [Required]
@@ -36,7 +37,8 @@ public class ProcessReadmeIncludes : Task
 
     /// <summary>
     /// Token name/value pairs for <c>$token$</c> replacement after include expansion.
-    /// Maps from <c>@(ReadmeReplacementToken)</c> (metadata <c>Value</c>).
+    /// Maps from <c>@(PackageReplacementToken)</c> (metadata <c>Value</c>).
+    /// Duplicate names keep the last value (coexists with NuGetizer contributions).
     /// </summary>
     public ITaskItem[]? ReplacementTokens { get; set; }
 
@@ -114,7 +116,7 @@ public class ProcessReadmeIncludes : Task
             Directory.CreateDirectory(directory);
 
         File.WriteAllText(OutputFile, content);
-        Log.LogMessage(MessageImportance.Low, "Processed package readme includes: {0} -> {1}", SourceFile, OutputFile);
+        Log.LogMessage(MessageImportance.Low, "Processed package readme: {0} -> {1}", SourceFile, OutputFile);
         return !Log.HasLoggedErrors;
     }
 

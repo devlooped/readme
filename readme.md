@@ -74,7 +74,7 @@ Absolute `http(s)` includes from a **local** file are always allowed (subject to
 | `ReadmeIncludeScheme` | `https` | Semicolon-separated URI schemes allowed for remote includes (add `http` only if needed) |
 | `ReadmeExpandGitHubUrls` | `true` | Expand relative links/images to raw.githubusercontent.com when `RepositoryUrl` is github.com and a commit is available |
 | `@(ReadmeIncludeDomain)` | _(empty)_ | Hosts allowed for absolute remote includes nested inside remote content |
-| `@(ReadmeReplacementToken)` | Id, Version, Author, Authors, Title, Description, Copyright, Configuration, Product | `$token$` replacements applied after includes |
+| `@(PackageReplacementToken)` | Id, Version, Author, Authors, Title, Description, Copyright, Configuration, Product | `$token$` replacements (defaults from `CollectReplacementTokens`) |
 
 ```xml
 <PropertyGroup>
@@ -90,15 +90,45 @@ Absolute `http(s)` includes from a **local** file are always allowed (subject to
 
 Supports the [official NuGet replacement tokens](https://learn.microsoft.com/en-us/nuget/reference/nuspec#replacement-tokens) (`$id$`, `$version$`, `$author$`, `$title$`, `$description$`, `$copyright$`, `$configuration$`), plus `$authors$` (MSBuild `$(Authors)`) and `$product$` (as in NuGetizer). Replacements run **after** include expansion so tokens inside included files are replaced too.
 
-Extensible via MSBuild items `@(ReadmeReplacementToken)` (separate from NuGetizer's `@(PackageReplacementToken)` to avoid conflicts):
+Defaults are populated by the **`CollectReplacementTokens`** target (same item name as NuGetizer: `@(PackageReplacementToken)`). Duplicate names keep the **last** value — never an error — so Readme and NuGetizer can both contribute tokens.
+
+#### Extend tokens (readme and other files)
+
+Add items anytime; use them case-insensitively as `$company$` in the readme:
 
 ```xml
 <ItemGroup>
-  <ReadmeReplacementToken Include="Company" Value="$(Company)" />
+  <PackageReplacementToken Include="Company" Value="$(Company)" />
 </ItemGroup>
 ```
 
-Use the new token case-insensitively in the readme as `$company$`.
+Override or remove defaults **after** they are collected:
+
+```xml
+<Target Name="CustomizePackageTokens" AfterTargets="CollectReplacementTokens">
+  <ItemGroup>
+    <PackageReplacementToken Remove="Product" />
+    <PackageReplacementToken Include="BuildDate" Value="$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd'))" />
+  </ItemGroup>
+</Target>
+```
+
+Pre-work before defaults (e.g. compute properties) via `$(CollectReplacementTokensDependsOn)` or `BeforeTargets="CollectReplacementTokens"`.
+
+#### Replace tokens in arbitrary files
+
+`ReplacePackageTokens` applies the same `@(PackageReplacementToken)` map to any file. Pair it with `Inputs` / `Outputs` for incremental builds. Unknown remaining `$token$` placeholders emit warning **RDM001** (suppress with `<NoWarn>$(NoWarn);RDM001</NoWarn>`). The package-readme path does **not** warn on unknown tokens (docs may contain `$…$` examples).
+
+```xml
+<Target Name="ProcessPackageEula"
+        DependsOnTargets="CollectReplacementTokens"
+        Inputs="osmfeula.txt"
+        Outputs="$(IntermediateOutputPath)OSMFEULA.txt">
+  <ReplacePackageTokens InputFile="osmfeula.txt"
+                        OutputFile="$(IntermediateOutputPath)OSMFEULA.txt"
+                        Tokens="@(PackageReplacementToken)" />
+</Target>
+```
 
 ### GitHub relative URLs
 

@@ -116,7 +116,7 @@ public class GitHubUrlExpanderTests
     }
 
     [Fact]
-    public void ProcessReadmeIncludesTask_ExpandsGitHubUrlsAfterTokens()
+    public void ProcessPackageReadmeTask_ExpandsGitHubUrlsAfterTokens()
     {
         var root = Path.Combine(Path.GetTempPath(), "readme-github-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -126,7 +126,7 @@ public class GitHubUrlExpanderTests
             File.WriteAllText(source, "Package $id$. See [docs](docs/usage.md).\n");
             var output = Path.Combine(root, "out", "readme.md");
 
-            var task = new ProcessReadmeIncludes
+            var task = new ProcessPackageReadme
             {
                 SourceFile = source,
                 OutputFile = output,
@@ -153,7 +153,7 @@ public class GitHubUrlExpanderTests
     }
 
     [Fact]
-    public void ProcessReadmeIncludesTask_OptOut_DoesNotExpand()
+    public void ProcessPackageReadmeTask_OptOut_DoesNotExpand()
     {
         var root = Path.Combine(Path.GetTempPath(), "readme-github-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -163,7 +163,7 @@ public class GitHubUrlExpanderTests
             File.WriteAllText(source, "See [docs](docs/usage.md).\n");
             var output = Path.Combine(root, "out", "readme.md");
 
-            var task = new ProcessReadmeIncludes
+            var task = new ProcessPackageReadme
             {
                 SourceFile = source,
                 OutputFile = output,
@@ -185,7 +185,7 @@ public class GitHubUrlExpanderTests
     }
 
     [Fact]
-    public void ProcessReadmeIncludesTask_MissingCommit_LeavesRelativeUrls()
+    public void ProcessPackageReadmeTask_MissingCommit_LeavesRelativeUrls()
     {
         var root = Path.Combine(Path.GetTempPath(), "readme-github-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -195,7 +195,7 @@ public class GitHubUrlExpanderTests
             File.WriteAllText(source, "See [docs](docs/usage.md).\n");
             var output = Path.Combine(root, "out", "readme.md");
 
-            var task = new ProcessReadmeIncludes
+            var task = new ProcessPackageReadme
             {
                 SourceFile = source,
                 OutputFile = output,
