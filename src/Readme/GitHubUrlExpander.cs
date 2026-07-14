@@ -31,8 +31,9 @@ public static class GitHubUrlExpander
             !uri.Host.EndsWith("github.com", StringComparison.OrdinalIgnoreCase))
             return markdown;
 
-        // owner/repo — strip leading slash and optional .git suffix
-        var repoPath = uri.AbsolutePath.TrimStart('/');
+        // owner/repo — strip leading/trailing slashes and optional .git suffix
+        // (trailing slash would leave "repo.git/" which fails EndsWith(".git"))
+        var repoPath = uri.AbsolutePath.Trim('/');
         if (repoPath.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
             repoPath = repoPath.Substring(0, repoPath.Length - 4);
 

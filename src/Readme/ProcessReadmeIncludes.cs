@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Microsoft.Build.Framework;
 using Task = Microsoft.Build.Utilities.Task;
 
@@ -102,6 +103,12 @@ public class ProcessReadmeIncludes : Task
             }
         }
 
+        // NuGetizer CreatePackage always re-runs its own IncludesResolver on the package
+        // readme (older algorithm: no ```exclude, IndexOf fragments). Neutralize include
+        // openers so that second pass is a no-op while docs still read as include syntax
+        // (zero-width space is invisible). Same for our own expansion wrappers.
+        content = NeutralizeIncludeOpeners(content);
+
         var directory = Path.GetDirectoryName(OutputFile);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
@@ -109,5 +116,24 @@ public class ProcessReadmeIncludes : Task
         File.WriteAllText(OutputFile, content);
         Log.LogMessage(MessageImportance.Low, "Processed package readme includes: {0} -> {1}", SourceFile, OutputFile);
         return !Log.HasLoggedErrors;
+    }
+
+    /// <summary>
+    /// Inserts a zero-width space after the <c>include</c> keyword in
+    /// <c>&lt;!-- include … --&gt;</c> openers so a subsequent IncludesResolver pass
+    /// (e.g. NuGetizer CreatePackage) will not re-expand them, while the text still
+    /// appears as normal include syntax to readers.
+    /// </summary>
+    public static string NeutralizeIncludeOpeners(string content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return content;
+
+        // Match the same opener shape IncludesResolver uses; inject U+200B after "include".
+        return Regex.Replace(
+            content,
+            @"<!--(\s?)include(\s)",
+            "<!--$1include\u200B$2",
+            RegexOptions.CultureInvariant);
     }
 }

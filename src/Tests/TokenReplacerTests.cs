@@ -93,11 +93,27 @@ public class TokenReplacerTests
             Assert.Contains("Included Widget.", content);
             Assert.DoesNotContain("$id$", content);
             Assert.DoesNotContain("$product$", content);
+            // Include openers neutralized so NuGetizer CreatePackage won't re-expand them.
+            Assert.DoesNotMatch(@"<!--\s?include\s", content);
+            Assert.Contains("include\u200B", content);
         }
         finally
         {
             try { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); } catch { /* best-effort */ }
         }
+    }
+
+    [Fact]
+    public void NeutralizeIncludeOpeners_BreaksIncludeRegexButKeepsReadableText()
+    {
+        var input = "before\n<!-- include foo.md -->\n<!--include bar.md-->\nafter\n";
+        var result = ProcessReadmeIncludes.NeutralizeIncludeOpeners(input);
+
+        Assert.DoesNotMatch(@"<!--\s?include\s", result);
+        Assert.Contains("<!-- include\u200B foo.md -->", result);
+        Assert.Contains("<!--include\u200B bar.md-->", result);
+        Assert.Contains("before", result);
+        Assert.Contains("after", result);
     }
 
     [Fact]
