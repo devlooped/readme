@@ -3,7 +3,9 @@
   <!--
     Readme package targets:
     1. Auto-mark the package readme for packing (SDK Pack + NuGetizer item metadata).
-    2. Resolve include directives into $(BaseIntermediateOutputPath) and pack that file.
+    2. Collect @(PackageReplacementToken) defaults (CollectReplacementTokens).
+    3. Process package readme: includes, $token$ replacement, GitHub URL expansion into
+       $(BaseIntermediateOutputPath), then pack that file.
     PackageReadmeFile is inferred here (after the project file), not in .props, so
     PackReadme=false in the csproj wins and clears any residual PackageReadmeFile (NU5039).
   -->
@@ -12,7 +14,9 @@
     <_ReadmeTaskAssembly Condition="'$(_ReadmeTaskAssembly)' == ''">$(MSBuildThisFileDirectory)Readme.dll</_ReadmeTaskAssembly>
   </PropertyGroup>
 
-  <UsingTask TaskName="Readme.ProcessReadmeIncludes" AssemblyFile="$(_ReadmeTaskAssembly)"
+  <UsingTask TaskName="Readme.ProcessPackageReadme" AssemblyFile="$(_ReadmeTaskAssembly)"
+             Condition="Exists('$(_ReadmeTaskAssembly)')" />
+  <UsingTask TaskName="Readme.ReplacePackageTokens" AssemblyFile="$(_ReadmeTaskAssembly)"
              Condition="Exists('$(_ReadmeTaskAssembly)')" />
 
   <ItemGroup>
@@ -82,9 +86,34 @@
     </ItemGroup>
   </Target>
 
-  <!-- Process includes + $token$ replacement; retarget pack sources to the intermediate file (SDK Pack + NuGetizer). -->
-  <Target Name="ProcessPackageReadmeIncludes"
-          DependsOnTargets="$(ProcessPackageReadmeIncludesDependsOn)"
+  <!--
+    Populate default @(PackageReplacementToken) values (official NuGet + Authors + Product).
+    Same item name as NuGetizer: duplicate names keep last Value (never fail).
+    Consumers can add items anytime; AfterTargets this target to remove/replace defaults;
+    or use $(CollectReplacementTokensDependsOn) / BeforeTargets for pre-work.
+    Also depended on by custom targets that call ReplacePackageTokens for non-readme files.
+  -->
+  <Target Name="CollectReplacementTokens"
+          DependsOnTargets="$(CollectReplacementTokensDependsOn)">
+    <ItemGroup>
+      <!-- Official NuGet tokens: https://learn.microsoft.com/en-us/nuget/reference/nuspec#replacement-tokens -->
+      <PackageReplacementToken Include="Id" Value="$(PackageId)" />
+      <PackageReplacementToken Include="Version" Value="$(PackageVersion)" />
+      <!-- $author$ is the official NuGet token; $authors$ matches MSBuild $(Authors). -->
+      <PackageReplacementToken Include="Author" Value="$(Authors)" Condition="'$(Authors)' != ''" />
+      <PackageReplacementToken Include="Authors" Value="$(Authors)" Condition="'$(Authors)' != ''" />
+      <PackageReplacementToken Include="Title" Value="$(Title)" Condition="'$(Title)' != ''" />
+      <PackageReplacementToken Include="Description" Value="$(Description)" Condition="'$(Description)' != ''" />
+      <PackageReplacementToken Include="Copyright" Value="$(Copyright)" Condition="'$(Copyright)' != ''" />
+      <PackageReplacementToken Include="Configuration" Value="$(Configuration)" />
+      <!-- Extra token also provided by NuGetizer (not in official nuspec list). -->
+      <PackageReplacementToken Include="Product" Value="$(Product)" Condition="'$(Product)' != ''" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Process includes + $token$ replacement + GitHub URLs; retarget pack sources to intermediate. -->
+  <Target Name="ProcessPackageReadme"
+          DependsOnTargets="CollectReplacementTokens;$(ProcessPackageReadmeDependsOn)"
           BeforeTargets="GenerateNuspec;_GetPackageFiles;GetPackageContents;_GetPackageFilesFromPack"
           Condition="'$(IsPackable)' == 'true' and '$(PackReadme)' == 'true' and '$(PackageReadmeFile)' != ''">
 
@@ -102,25 +131,6 @@
     </PropertyGroup>
 
     <!--
-      Standard NuGet replacement tokens (same set as NuGetizer). Consumers can add more via
-      @(ReadmeReplacementToken) in the project; last Value wins for duplicate names.
-    -->
-    <ItemGroup>
-      <!-- Official NuGet tokens: https://learn.microsoft.com/en-us/nuget/reference/nuspec#replacement-tokens -->
-      <ReadmeReplacementToken Include="Id" Value="$(PackageId)" />
-      <ReadmeReplacementToken Include="Version" Value="$(PackageVersion)" />
-      <!-- $author$ is the official NuGet token; $authors$ matches MSBuild $(Authors). -->
-      <ReadmeReplacementToken Include="Author" Value="$(Authors)" Condition="'$(Authors)' != ''" />
-      <ReadmeReplacementToken Include="Authors" Value="$(Authors)" Condition="'$(Authors)' != ''" />
-      <ReadmeReplacementToken Include="Title" Value="$(Title)" Condition="'$(Title)' != ''" />
-      <ReadmeReplacementToken Include="Description" Value="$(Description)" Condition="'$(Description)' != ''" />
-      <ReadmeReplacementToken Include="Copyright" Value="$(Copyright)" Condition="'$(Copyright)' != ''" />
-      <ReadmeReplacementToken Include="Configuration" Value="$(Configuration)" />
-      <!-- Extra token also provided by NuGetizer (not in official nuspec list). -->
-      <ReadmeReplacementToken Include="Product" Value="$(Product)" Condition="'$(Product)' != ''" />
-    </ItemGroup>
-
-    <!--
       Resolve repository identity for GitHub relative URL expansion.
       Prefer public RepositoryUrl; fall back to SourceLink PrivateRepositoryUrl when publishing.
       Commit: RepositoryCommit → RepositorySha → SourceRevisionId (any non-empty wins first).
@@ -134,15 +144,15 @@
       <_ReadmeRepositoryCommit Condition="'$(_ReadmeRepositoryCommit)' == '' and '$(SourceRevisionId)' != ''">$(SourceRevisionId)</_ReadmeRepositoryCommit>
     </PropertyGroup>
 
-    <ProcessReadmeIncludes Condition="'$(_ReadmeSourceFile)' != '' and Exists('$(_ReadmeSourceFile)')"
-                           SourceFile="$(_ReadmeSourceFile)"
-                           OutputFile="$(_ReadmeProcessedFile)"
-                           AllowedSchemes="$(ReadmeIncludeScheme)"
-                           AllowedDomains="@(ReadmeIncludeDomain)"
-                           ReplacementTokens="@(ReadmeReplacementToken)"
-                           ExpandGitHubUrls="$(ReadmeExpandGitHubUrls)"
-                           RepositoryUrl="$(_ReadmeRepositoryUrl)"
-                           RepositoryCommit="$(_ReadmeRepositoryCommit)" />
+    <ProcessPackageReadme Condition="'$(_ReadmeSourceFile)' != '' and Exists('$(_ReadmeSourceFile)')"
+                          SourceFile="$(_ReadmeSourceFile)"
+                          OutputFile="$(_ReadmeProcessedFile)"
+                          AllowedSchemes="$(ReadmeIncludeScheme)"
+                          AllowedDomains="@(ReadmeIncludeDomain)"
+                          ReplacementTokens="@(PackageReplacementToken)"
+                          ExpandGitHubUrls="$(ReadmeExpandGitHubUrls)"
+                          RepositoryUrl="$(_ReadmeRepositoryUrl)"
+                          RepositoryCommit="$(_ReadmeRepositoryCommit)" />
 
     <!--
       Stop packing the unprocessed project-directory source; pack the intermediate instead.
@@ -170,16 +180,16 @@
 
   <!--
     NuGetizer: InferPackageContents is a DependsOn of GetPackageContents, so it runs *before*
-    any BeforeTargets and packages the unprocessed source. Process includes, then retarget
+    any BeforeTargets and packages the unprocessed source. Process readme, then retarget
     @(PackageFile) still BeforeTargets so AssignPackagePath (GetPackageContents body) snapshots
     the intermediate into @_PackageContent. AfterTargets would be too late for Pack.
     Safe no-op when NuGetizer is not present (PackageFile empty).
   -->
   <Target Name="RetargetNuGetizerProcessedReadme"
           BeforeTargets="GetPackageContents"
-          DependsOnTargets="ProcessPackageReadmeIncludes"
+          DependsOnTargets="ProcessPackageReadme"
           Condition="'$(IsPackable)' == 'true' and '$(PackReadme)' == 'true'">
-    <!-- Condition on items (not target): _ReadmeProcessedFile is set by ProcessPackageReadmeIncludes. -->
+    <!-- Condition on items (not target): _ReadmeProcessedFile is set by ProcessPackageReadme. -->
     <ItemGroup Condition="'$(_ReadmeProcessedFile)' != '' and Exists('$(_ReadmeProcessedFile)')">
       <_ReadmePackageFile Include="@(PackageFile)"
                           Condition="'%(PackageFile.PackagePath)' == '$(_ReadmePackagePath)' or '%(PackageFile.PackagePath)' == '$(PackageReadmeFile)'" />

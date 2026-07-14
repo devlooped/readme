@@ -16,11 +16,12 @@ Compatible with both SDK Pack and NuGetizer. Does not require NuGetizer.
 | Path | Role |
 |------|------|
 | `src/Readme/IncludesResolver.cs` | Pure include-resolution logic (ported from NuGetizer) |
-| `src/Readme/TokenReplacer.cs` | Pure `$token$` replacement (same algorithm as NuGetizer) |
+| `src/Readme/TokenReplacer.cs` | Pure `$token$` replacement + placeholder discovery |
 | `src/Readme/GitHubUrlExpander.cs` | Pure relative-link expansion via Markdig (ported from NuGetizer) |
-| `src/Readme/ProcessReadmeIncludes.cs` | Thin MSBuild task wrapping resolver + tokens + GitHub URLs |
+| `src/Readme/ProcessPackageReadme.cs` | MSBuild task: includes + tokens + GitHub URLs (no unknown-token warn) |
+| `src/Readme/ReplacePackageTokens.cs` | MSBuild task: tokens in arbitrary files (RDM001 on unknown) |
 | `src/Readme/build/Readme.props` | Defaults: `PackReadme`, `ReadmeExpandGitHubUrls` |
-| `src/Readme/build/Readme.targets` | Auto-pack item metadata + pre-pack process + NuGetizer `PackageFile` retarget |
+| `src/Readme/build/Readme.targets` | Auto-pack, `CollectReplacementTokens`, `ProcessPackageReadme`, task UsingTasks |
 | `src/Readme/buildTransitive/*` | Re-exports `build/` for transitive imports |
 | `src/ILRepack.targets` | Merges Markdig into `build/Readme.dll` |
 | `src/Tests/` | Unit tests on fixtures + SDK Pack / NuGetizer pack scenario tests |
@@ -32,7 +33,10 @@ Compatible with both SDK Pack and NuGetizer. Does not require NuGetizer.
 - **Warnings not errors**: missing includes / anchors call `Log.LogWarning` and leave markers in place.
 - **` ```exclude ` fences**: includes inside fenced code blocks with language `exclude` are left literal (for documenting include syntax).
 - **Fragment resolution**: explicit `<!-- #fragment -->` pairs win (placement controls whether a section title is included); otherwise GitHub heading auto-anchors match and **include the heading line** (e.g. `## Usage` for `#usage`).
-- **Token replacement**: after includes, `$token$` placeholders are replaced via `@(ReadmeReplacementToken)` (official NuGet: Id/Version/Author/Title/Description/Copyright/Configuration; plus Authors and Product; consumer-extensible). Case-insensitive names; last value wins for duplicates. Named separately from NuGetizer's `@(PackageReplacementToken)` to avoid item conflicts.
+- **Token replacement**: after includes, `$token$` placeholders are replaced via `@(PackageReplacementToken)` (official NuGet: Id/Version/Author/Title/Description/Copyright/Configuration; plus Authors and Product; consumer-extensible). Case-insensitive names; **last value wins** for duplicates (never fails). Same item name as NuGetizer for coexistence; newer NuGetizers can adopt this model.
+- **`CollectReplacementTokens`**: populates default `@(PackageReplacementToken)` items. Depend on it before using tokens. Consumers add items anytime; `AfterTargets="CollectReplacementTokens"` to remove/replace defaults; `$(CollectReplacementTokensDependsOn)` / `BeforeTargets` for pre-work.
+- **`ProcessPackageReadme`**: pack-time target (`DependsOnTargets=CollectReplacementTokens;$(ProcessPackageReadmeDependsOn)`) runs the process task then retargets pack items to the intermediate file. Does **not** warn on leftover `$token$` (readme may document that syntax).
+- **`ReplacePackageTokens`**: public task for arbitrary InputFile→OutputFile replacement with `Tokens="@(PackageReplacementToken)"`. Emits **RDM001** for remaining unknown placeholders (suppress via `NoWarn`). Suitable for incremental targets (`Inputs`/`Outputs`).
 - **GitHub relative URLs**: after tokens, relative Markdown links/images are rewritten to `https://raw.githubusercontent.com/{owner}/{repo}/{commit}/…` when `ReadmeExpandGitHubUrls` is true (default), `RepositoryUrl` is a github.com absolute URL, and a commit is available (`RepositoryCommit` → `RepositorySha` → `SourceRevisionId`). Auto-skips otherwise. Opt out with `ReadmeExpandGitHubUrls=false`. Uses Markdig `LinkInline` + `NormalizeRenderer` (same as NuGetizer).
 - **ILRepack Markdig**: Markdig and its polyfill deps are internalized into `build/Readme.dll` so the package ships a single task assembly (no satellite DLLs under `build/`).
 - **Package layout**: development dependency (`DevelopmentDependency=true`); task DLL + props/targets under `build/` (and `buildTransitive/`). Primary output is not under `lib/` (`IncludeBuildOutput=false`).
