@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.1.1](https://github.com/devlooped/readme/tree/v1.1.1) (2026-07-14)
+
+[Full Changelog](https://github.com/devlooped/readme/compare/v1.1.0...v1.1.1)
+
+:bug: Fixed bugs:
+
+- Use Markdig for exclude fences and fix fragment double-includes [\#19](https://github.com/devlooped/readme/pull/19) (@kzu)
+
 ## [v1.1.0](https://github.com/devlooped/readme/tree/v1.1.0) (2026-07-13)
 
 [Full Changelog](https://github.com/devlooped/readme/compare/v1.0.2...v1.1.0)
