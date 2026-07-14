@@ -103,6 +103,19 @@ public class GitHubUrlExpanderTests
     }
 
     [Fact]
+    public void Expand_StripsGitSuffixEvenWithTrailingSlash()
+    {
+        // RepositoryUrl often ends with .git/ from SourceLink; must not produce raw.githubusercontent.com/.../repo.git/...
+        var result = GitHubUrlExpander.Expand(
+            "See [license](license.txt).",
+            "https://github.com/devlooped/readme.git/",
+            Commit);
+
+        Assert.Contains("https://raw.githubusercontent.com/devlooped/readme/abc123def/license.txt", result);
+        Assert.DoesNotContain("readme.git/", result);
+    }
+
+    [Fact]
     public void ProcessReadmeIncludesTask_ExpandsGitHubUrlsAfterTokens()
     {
         var root = Path.Combine(Path.GetTempPath(), "readme-github-tests", Guid.NewGuid().ToString("N"));

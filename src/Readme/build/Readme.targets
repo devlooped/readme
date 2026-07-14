@@ -84,8 +84,9 @@
 
   <!-- Process includes + $token$ replacement; retarget pack sources to the intermediate file (SDK Pack + NuGetizer). -->
   <Target Name="ProcessPackageReadmeIncludes"
+          DependsOnTargets="$(ProcessPackageReadmeIncludesDependsOn)"
           BeforeTargets="GenerateNuspec;_GetPackageFiles;GetPackageContents;_GetPackageFilesFromPack"
-          Condition="'$(IsPackable)' == 'true' and '$(PackReadme)' == 'true' and '$(PackageReadmeFile)' != '' and Exists('$(_ReadmeTaskAssembly)')">
+          Condition="'$(IsPackable)' == 'true' and '$(PackReadme)' == 'true' and '$(PackageReadmeFile)' != ''">
 
     <PropertyGroup>
       <!-- Prefer project-directory readme as the source of includes. -->
@@ -143,12 +144,14 @@
                            RepositoryUrl="$(_ReadmeRepositoryUrl)"
                            RepositoryCommit="$(_ReadmeRepositoryCommit)" />
 
-    <!-- Stop packing the unprocessed source; pack the intermediate processed file instead. -->
+    <!--
+      Stop packing the unprocessed project-directory source; pack the intermediate instead.
+      Match by project-dir path only — never by Filename alone (case-insensitive Filename
+      'readme' would also hit Readme.props / Readme.targets / Readme.dll).
+    -->
     <ItemGroup Condition="Exists('$(_ReadmeProcessedFile)')">
-      <None Update="@(None -> WithMetadataValue('Filename', '$(PackageReadmeFilename)'))"
-            Pack="false" />
-      <Content Update="@(Content -> WithMetadataValue('Filename', '$(PackageReadmeFilename)'))"
-               Pack="false" />
+      <None Update="$(_ReadmeSourceFile)" Pack="false" Condition="'$(_ReadmeSourceFile)' != ''" />
+      <Content Update="$(_ReadmeSourceFile)" Pack="false" Condition="'$(_ReadmeSourceFile)' != ''" />
 
       <!-- Remove prior intermediate entries to avoid duplicates across incremental runs. -->
       <None Remove="$(_ReadmeProcessedFile)" />

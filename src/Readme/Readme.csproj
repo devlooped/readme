@@ -1,5 +1,16 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    This project is plain SDK Pack (no NuGetizer). Self-host bootstrap for the task assembly
+    lives ONLY here — never in shipped build/Readme.targets.
+
+    Task locking: UsingTask locks AssemblyFile for the MSBuild node lifetime. Loading
+    $(TargetPath) or build/Readme.dll blocks Compile/Copy (MSB3027). So we:
+      1. Copy the built DLL to a fixed shadow under obj/Readme.Task/ (Build never writes there).
+      2. Register UsingTask on that shadow *before* importing build/Readme.targets (first wins).
+      3. Hook Prepare via ProcessPackageReadmeIncludesDependsOn (extension point in shipped targets).
+      4. ContinueOnError on shadow Copy so re-entry after the node already locked the file is OK.
+  -->
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <PackageId>Readme</PackageId>
@@ -11,14 +22,10 @@
     <PackageTags>readme nuget pack include markdown msbuild github</PackageTags>
     <DevelopmentDependency>true</DevelopmentDependency>
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
-    <!-- Build package: pack None under relative paths (build/, buildTransitive/). -->
     <IncludeBuildOutput>false</IncludeBuildOutput>
-    <PackBuildOutput>false</PackBuildOutput>
-    <PackNone>true</PackNone>
     <NoWarn>$(NoWarn);NU5128</NoWarn>
     <Nullable>enable</Nullable>
     <LangVersion>Latest</LangVersion>
-    <!-- Always merge Markdig so build/Readme.dll is self-contained (no satellite deps). -->
     <ILRepack>true</ILRepack>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
@@ -27,11 +34,9 @@
     <PackageReference Include="Microsoft.Build.Tasks.Core" Version="17.11.48" PrivateAssets="all" />
     <PackageReference Include="Markdig" Version="1.3.2" PrivateAssets="all" />
     <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.1.2" PrivateAssets="all" />
-    <PackageReference Include="NuGetizer" Version="1.4.9" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Merge Markdig + polyfills into the task assembly (same set as NuGetizer). -->
     <ILRepackInclude Include="Markdig" />
     <ILRepackInclude Include="System.Buffers" />
     <ILRepackInclude Include="System.Memory" />
@@ -39,48 +44,45 @@
     <ILRepackInclude Include="System.Runtime.CompilerServices.Unsafe" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="build\Readme.props" />
-    <None Include="build\Readme.targets" />
-    <None Include="buildTransitive\Readme.props" />
-    <None Include="buildTransitive\Readme.targets" />
-  </ItemGroup>
+  <!--
+    Pack assets via TfmSpecificPackageFile (SDK Pack recommended path). None/Content Pack=
+    metadata is unreliable here: Directory.Build + IncludeBuildOutput=false leave Pack=false
+    by collect time. Dev-only — not in shipped targets.
+  -->
+  <PropertyGroup>
+    <TargetsForTfmSpecificContentInPackage>
+      $(TargetsForTfmSpecificContentInPackage);
+      AddReadmePackageAssets
+    </TargetsForTfmSpecificContentInPackage>
+  </PropertyGroup>
 
-  <!-- Copy task assembly into build/ so it ships at build/Readme.dll -->
   <Target Name="CopyTaskAssemblyToBuild" AfterTargets="Build">
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(MSBuildProjectDirectory)\build" SkipUnchangedFiles="true" />
     <ItemGroup>
-      <None Include="build\$(TargetFileName)" Condition="!Exists('@(None)') or '@(None)' == ''" />
-      <None Include="build\$(TargetFileName)" />
-      <FileWrites Include="build\$(TargetFileName)" />
+      <FileWrites Include="$(MSBuildProjectDirectory)\build\$(TargetFileName)" />
     </ItemGroup>
   </Target>
 
-  <!--
-    Repo Directory.Build.targets matches Filename 'readme' case-insensitively and sets
-    PackagePath=%(Filename)%(Extension), which flattens Readme.props/targets. Restore correct paths.
-  -->
-  <PropertyGroup>
-    <InferPackageContentsDependsOn>FixBuildPackagePaths;$(InferPackageContentsDependsOn)</InferPackageContentsDependsOn>
-    <GetPackageContentsDependsOn>FixBuildPackagePaths;$(GetPackageContentsDependsOn)</GetPackageContentsDependsOn>
-  </PropertyGroup>
-
-  <Target Name="FixBuildPackagePaths">
+  <Target Name="AddReadmePackageAssets"
+          DependsOnTargets="Build;CopyTaskAssemblyToBuild;ProcessPackageReadmeIncludes">
     <ItemGroup>
-      <None Remove="build\**\*.*;buildTransitive\**\*.*" />
-      <None Include="$(MSBuildProjectDirectory)\build\Readme.props" Pack="true" PackagePath="build/Readme.props" PackFolder="build" />
-      <None Include="$(MSBuildProjectDirectory)\build\Readme.targets" Pack="true" PackagePath="build/Readme.targets" PackFolder="build" />
-      <None Include="$(MSBuildProjectDirectory)\build\Readme.dll" Pack="true" PackagePath="build/Readme.dll" PackFolder="build" Condition="Exists('$(MSBuildProjectDirectory)\build\Readme.dll')" />
-      <None Include="$(MSBuildProjectDirectory)\buildTransitive\Readme.props" Pack="true" PackagePath="buildTransitive/Readme.props" PackFolder="buildTransitive" />
-      <None Include="$(MSBuildProjectDirectory)\buildTransitive\Readme.targets" Pack="true" PackagePath="buildTransitive/Readme.targets" PackFolder="buildTransitive" />
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)\build\Readme.props" PackagePath="build/Readme.props" />
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)\build\Readme.targets" PackagePath="build/Readme.targets" />
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)\build\Readme.dll" PackagePath="build/Readme.dll"
+                              Condition="Exists('$(MSBuildProjectDirectory)\build\Readme.dll')" />
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)\buildTransitive\Readme.props" PackagePath="buildTransitive/Readme.props" />
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)\buildTransitive\Readme.targets" PackagePath="buildTransitive/Readme.targets" />
+      <TfmSpecificPackageFile Include="$(BaseIntermediateOutputPath)OSMFEULA.txt" PackagePath="OSMFEULA.txt"
+                              Condition="Exists('$(BaseIntermediateOutputPath)OSMFEULA.txt')" />
+      <TfmSpecificPackageFile Include="$(MSBuildThisFileDirectory)..\icon.png" PackagePath="icon.png"
+                              Condition="Exists('$(MSBuildThisFileDirectory)..\icon.png')" />
+      <!--
+        Do not pack the intermediate readme here — ProcessPackageReadmeIncludes already
+        adds it as None with PackagePath=readme.md. A second entry causes NU5118.
+      -->
     </ItemGroup>
   </Target>
 
-  <!--
-    MSBuild 17 packages ship ref assemblies that are not copy-local, so ILRepack cannot
-    resolve Microsoft.Build.Framework when merging Markdig. Add those ReferencePath entries
-    as resolve-only /lib directories (not ILRepackInclude, so they are not merged).
-  -->
   <Target Name="ILRepackAddResolveLibs" BeforeTargets="ILRepack" Condition="'$(ILRepack)' == 'true'">
     <ItemGroup>
       <ReferenceCopyLocalPaths Include="@(ReferencePath)" Condition="
@@ -92,4 +94,52 @@
   </Target>
 
   <Import Project="..\ILRepack.targets" />
+
+  <!-- ========== Dev-only self-host (not shipped) ========== -->
+  <PropertyGroup>
+    <!--
+      Fixed shadow path (UsingTask freezes AssemblyFile at registration — cannot use a guid).
+      Never point at $(TargetPath) or build/Readme.dll: the node locks the loaded file forever.
+    -->
+    <_ReadmeTaskAssembly>$(MSBuildProjectDirectory)\obj\Readme.Task\Readme.dll</_ReadmeTaskAssembly>
+    <ProcessPackageReadmeIncludesDependsOn>PrepareSelfHostReadmeTask;$(ProcessPackageReadmeIncludesDependsOn)</ProcessPackageReadmeIncludesDependsOn>
+  </PropertyGroup>
+
+  <!-- First UsingTask wins over build/Readme.targets. -->
+  <UsingTask TaskName="Readme.ProcessReadmeIncludes" AssemblyFile="$(_ReadmeTaskAssembly)" />
+
+  <!--
+    Seed the shadow once. After ProcessReadmeIncludes runs, MSBuild holds a lock on the
+    shadow for the node lifetime — further copies fail. ContinueOnError allows re-entry
+    when this target is a DependsOn of multiple pack targets in the same node.
+  -->
+  <Target Name="PrepareSelfHostReadmeTask" DependsOnTargets="Build">
+    <MakeDir Directories="$(MSBuildProjectDirectory)\obj\Readme.Task" />
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFiles="$(_ReadmeTaskAssembly)"
+          SkipUnchangedFiles="true"
+          Retries="0"
+          ContinueOnError="WarnAndContinue"
+          Condition="Exists('$(TargetPath)')" />
+  </Target>
+
+  <!--
+    Stage license next to other pack inputs under intermediate output. SDK Pack NU5030
+    rejects PackageLicenseFile when the only source is a Content item outside the project
+    with Pack metadata stripped; packing a project-local staged copy is reliable.
+  -->
+  <Target Name="StagePackageLicense" BeforeTargets="AddReadmePackageAssets;GenerateNuspec;Pack"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\..\osmfeula.txt')">
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\osmfeula.txt"
+          DestinationFiles="$(BaseIntermediateOutputPath)OSMFEULA.txt"
+          SkipUnchangedFiles="true" />
+    <PropertyGroup>
+      <PackageLicenseFile>OSMFEULA.txt</PackageLicenseFile>
+      <PackageLicenseExpression></PackageLicenseExpression>
+      <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    </PropertyGroup>
+  </Target>
+
+  <Import Project="build\Readme.props" Condition="Exists('$(MSBuildThisFileDirectory)build\Readme.props')" />
+  <Import Project="build\Readme.targets" Condition="Exists('$(MSBuildThisFileDirectory)build\Readme.targets')" />
 </Project>
