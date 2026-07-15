@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.2.0](https://github.com/devlooped/readme/tree/v1.2.0) (2026-07-14)
+
+[Full Changelog](https://github.com/devlooped/readme/compare/v1.1.3...v1.2.0)
+
+:sparkles: Implemented enhancements:
+
+- Improve and expose package token replacement as a feature [\#22](https://github.com/devlooped/readme/pull/22) (@kzu)
+
 ## [v1.1.3](https://github.com/devlooped/readme/tree/v1.1.3) (2026-07-14)
 
 [Full Changelog](https://github.com/devlooped/readme/compare/v1.1.2...v1.1.3)
