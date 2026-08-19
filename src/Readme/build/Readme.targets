@@ -81,8 +81,9 @@
       <PackageReadmeFile></PackageReadmeFile>
     </PropertyGroup>
     <ItemGroup>
-      <None Update="@(None -> WithMetadataValue('Filename', 'readme'))" Pack="false" />
-      <Content Update="@(Content -> WithMetadataValue('Filename', 'readme'))" Pack="false" />
+      <!-- Update="%(Identity)" + Condition: target-time Update="spec" matches every item on Unix. -->
+      <None Update="%(None.Identity)" Pack="false" Condition="'%(None.Filename)' == 'readme'" />
+      <Content Update="%(Content.Identity)" Pack="false" Condition="'%(Content.Filename)' == 'readme'" />
     </ItemGroup>
   </Target>
 
@@ -118,9 +119,9 @@
           Condition="'$(IsPackable)' == 'true' and '$(PackReadme)' == 'true' and '$(PackageReadmeFile)' != ''">
 
     <PropertyGroup>
-      <!-- Prefer project-directory readme as the source of includes. -->
-      <_ReadmeSourceFile Condition="'$(_ReadmeSourceFile)' == '' and Exists('$(MSBuildProjectDirectory)\$(PackageReadmeFile)')">$(MSBuildProjectDirectory)\$(PackageReadmeFile)</_ReadmeSourceFile>
-      <_ReadmeSourceFile Condition="'$(_ReadmeSourceFile)' == '' and Exists('$(PackageReadmeFile)')">$(PackageReadmeFile)</_ReadmeSourceFile>
+      <!-- Prefer project-directory readme as the source of includes. Normalize so FullPath compares work on Unix. -->
+      <_ReadmeSourceFile Condition="'$(_ReadmeSourceFile)' == '' and Exists('$(MSBuildProjectDirectory)\$(PackageReadmeFile)')">$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(PackageReadmeFile)'))</_ReadmeSourceFile>
+      <_ReadmeSourceFile Condition="'$(_ReadmeSourceFile)' == '' and Exists('$(PackageReadmeFile)')">$([MSBuild]::NormalizePath('$(PackageReadmeFile)'))</_ReadmeSourceFile>
 
       <!-- Package path filename (readme.md by default). -->
       <_ReadmePackagePath Condition="'$(_ReadmePackagePath)' == ''">$(PackageReadmeFilename)$(PackageReadmeExtension)</_ReadmePackagePath>
@@ -160,11 +161,15 @@
       'readme' would also hit Readme.props / Readme.targets / Readme.dll).
     -->
     <ItemGroup Condition="Exists('$(_ReadmeProcessedFile)')">
-      <None Update="$(_ReadmeSourceFile)" Pack="false" Condition="'$(_ReadmeSourceFile)' != ''" />
-      <Content Update="$(_ReadmeSourceFile)" Pack="false" Condition="'$(_ReadmeSourceFile)' != ''" />
+      <!-- Update="%(Identity)" + FullPath: target-time Update="path" matches every None/Content on Unix (NU5030). -->
+      <None Update="%(None.Identity)" Pack="false"
+            Condition="'$(_ReadmeSourceFile)' != '' and '%(None.FullPath)' == '$(_ReadmeSourceFile)'" />
+      <Content Update="%(Content.Identity)" Pack="false"
+               Condition="'$(_ReadmeSourceFile)' != '' and '%(Content.FullPath)' == '$(_ReadmeSourceFile)'" />
 
       <!-- Remove prior intermediate entries to avoid duplicates across incremental runs. -->
-      <None Remove="$(_ReadmeProcessedFile)" />
+      <_ReadmeProcessedNone Include="@(None)" Condition="'%(None.FullPath)' == '$(_ReadmeProcessedFile)'" />
+      <None Remove="@(_ReadmeProcessedNone)" />
       <None Include="$(_ReadmeProcessedFile)"
             Pack="true"
             PackagePath="$(_ReadmePackagePath)"

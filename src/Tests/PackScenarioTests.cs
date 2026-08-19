@@ -147,17 +147,50 @@ public class PackScenarioTests
         var nupkg = Directory.GetFiles(Path.Combine(work, "out"), "*.nupkg").Single();
         File.Copy(nupkg, Path.Combine(evidenceDir, Path.GetFileName(nupkg)), overwrite: true);
 
-        using (var zip = ZipFile.OpenRead(nupkg))
-        {
-            var entries = zip.Entries.Select(e => e.FullName).ToList();
-            File.WriteAllLines(Path.Combine(evidenceDir, "nupkg-entries.txt"), entries);
-            Assert.DoesNotContain(entries, e => e.Equals("readme.md", StringComparison.OrdinalIgnoreCase));
-        }
+        var entries = ZipEntries(nupkg);
+        File.WriteAllLines(Path.Combine(evidenceDir, "nupkg-entries.txt"), entries);
+        Assert.DoesNotContain(entries, e => e.Equals("readme.md", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(entries, e => e.Equals("OSMFEULA.txt", StringComparison.Ordinal));
 
         var nuspec = ReadPackageEntry(nupkg, "PackReadmeFalseSample.nuspec");
         File.WriteAllText(Path.Combine(evidenceDir, "package.nuspec"), nuspec);
         Assert.DoesNotContain("<readme>", nuspec, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("NU5039", File.ReadAllText(packLog), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("NU5030", File.ReadAllText(packLog), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SdkPack_DoesNotClearPackOnLicenseOrOtherNoneItems()
+    {
+        var evidenceDir = Path.Combine(ScratchRoot, "sdk-pack-license");
+        Directory.CreateDirectory(evidenceDir);
+
+        var work = PrepareScenario("SdkPackLicense", evidenceDir);
+        var packed = EnsureReadmePackage(evidenceDir);
+        InjectLocalFeedAndReference(work, packed, useNuGetizer: false);
+
+        var packLog = Path.Combine(evidenceDir, "pack.log");
+        var exit = RunDotnet(
+            $"pack \"{Path.Combine(work, "SdkPackLicense.csproj")}\" -c Release -o \"{Path.Combine(work, "out")}\" -v:n",
+            work, packLog);
+        Assert.True(exit == 0, $"SDK pack with license file failed (NU5030?). See {packLog}\n{File.ReadAllText(packLog)}");
+
+        var nupkg = Directory.GetFiles(Path.Combine(work, "out"), "*.nupkg").Single();
+        var entries = ZipEntries(nupkg);
+        File.WriteAllLines(Path.Combine(evidenceDir, "nupkg-entries.txt"), entries);
+        Assert.Contains(entries, e => e.Equals("OSMFEULA.txt", StringComparison.Ordinal));
+        Assert.Contains(entries, e => e.Equals("NOTICE.txt", StringComparison.Ordinal));
+        Assert.Contains(entries, e => e.Equals("readme.md", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain("NU5030", File.ReadAllText(packLog), StringComparison.OrdinalIgnoreCase);
+
+        var nuspec = ReadPackageEntry(nupkg, "SdkPackLicenseSample.nuspec");
+        Assert.Contains("<license type=\"file\">OSMFEULA.txt</license>", nuspec, StringComparison.Ordinal);
+    }
+
+    static IReadOnlyList<string> ZipEntries(string nupkg)
+    {
+        using var zip = ZipFile.OpenRead(nupkg);
+        return zip.Entries.Select(e => e.FullName).ToList();
     }
 
     string PrepareScenario(string name, string evidenceDir)

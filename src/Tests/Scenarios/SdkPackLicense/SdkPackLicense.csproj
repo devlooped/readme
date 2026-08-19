@@ -1,22 +1,18 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<!-- SDK Pack with PackReadme=false: must not set PackageReadmeFile / fail NU5039. -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <IsPackable>true</IsPackable>
-    <PackageId>PackReadmeFalseSample</PackageId>
+    <PackageId>SdkPackLicenseSample</PackageId>
     <Version>1.0.0</Version>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
     <NuGetize>false</NuGetize>
     <ImportNuGetBuildTasksPackTargetsFromSdk>true</ImportNuGetBuildTasksPackTargetsFromSdk>
-    <!-- Opt out of automatic package readme packing (readme.md still present on disk). -->
-    <PackReadme>false</PackReadme>
     <PackageLicenseFile>OSMFEULA.txt</PackageLicenseFile>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
   </PropertyGroup>
   <ItemGroup>
     <Content Include="OSMFEULA.txt" Pack="true" PackagePath="OSMFEULA.txt" />
+    <None Include="NOTICE.txt" Pack="true" PackagePath="NOTICE.txt" />
   </ItemGroup>
 </Project>
-
