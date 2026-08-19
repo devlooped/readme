@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.2.1](https://github.com/devlooped/readme/tree/v1.2.1) (2026-08-19)
+
+[Full Changelog](https://github.com/devlooped/readme/compare/v1.2.0...v1.2.1)
+
+:bug: Fixed bugs:
+
+- Fix Unix target-time Update wiping Pack on license files \(NU5030\) [\#30](https://github.com/devlooped/readme/pull/30) (@kzu)
+
 ## [v1.2.0](https://github.com/devlooped/readme/tree/v1.2.0) (2026-07-14)
 
 [Full Changelog](https://github.com/devlooped/readme/compare/v1.1.3...v1.2.0)
