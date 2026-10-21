@@ -1,5 +1,17 @@
 # Changelog
 
+## [v1.2.2](https://github.com/devlooped/readme/tree/v1.2.2) (2026-10-21)
+
+[Full Changelog](https://github.com/devlooped/readme/compare/v1.2.1...v1.2.2)
+
+:hammer: Other:
+
+- Bump all open dependency updates together [\#39](https://github.com/devlooped/readme/issues/39)
+
+:twisted_rightwards_arrows: Merged:
+
+- Bump dependency updates together [\#40](https://github.com/devlooped/readme/pull/40) (@Copilot)
+
 ## [v1.2.1](https://github.com/devlooped/readme/tree/v1.2.1) (2026-08-19)
 
 [Full Changelog](https://github.com/devlooped/readme/compare/v1.2.0...v1.2.1)
