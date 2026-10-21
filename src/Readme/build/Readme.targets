@@ -54,6 +54,7 @@
     <None Update="@(None -> WithMetadataValue('Filename', '$(PackageReadmeFilename)'))"
           Pack="true"
           PackagePath="$(PackageReadmeFilename)$(PackageReadmeExtension)"
+          Source="Readme"
           CopyToOutputDirectory="Never" />
 
     <!-- Explicit include when the readme is not already a None item (non-SDK or custom layout). -->
@@ -61,6 +62,7 @@
           Pack="true"
           PackagePath="$(PackageReadmeFilename)$(PackageReadmeExtension)"
           CopyToOutputDirectory="Never"
+          Source="Readme"
           Condition="Exists('$(MSBuildProjectDirectory)\$(PackageReadmeFile)') and '@(None->WithMetadataValue('Filename', '$(PackageReadmeFilename)'))' == ''" />
   </ItemGroup>
 
